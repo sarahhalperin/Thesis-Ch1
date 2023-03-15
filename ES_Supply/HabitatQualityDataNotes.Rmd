@@ -1,0 +1,208 @@
+---
+title: "InVEST Habitat Quality"
+author: "Sarah Halperin"
+date: "5/11/2020"
+output: pdf_document
+---
+
+## Habitat Quality inVEST Model Data Collection Notes and Model Running
+5-11-2020
+
+Following Gibson (Quintas-Soriano et al., 2020) selected threats to be agriculture, low/med/high urban, primary roads, and secondary roads, and trails. 
+
+Weights and effective distance taken from Polasky et al. 2011 appendix information. This include Ag, urban, primary, secondary, and light roads. I equated light roads with trails. 
+Weights and effective distance for medium and low density taken from Blumstein and Thompson 2015. 
+
+Sensitivity parameters were primarily taken from Blumstein and Thompson who used sensitivity for genral terrestrial species. However, these did not include primary, secondary, and trails. I have taken those from Polasky et al., 2011. 
+
+
+In cases where there was distinction based on ownership I took public ownership numbers (Polaskey et al., 2011). 
+
+To determine where habitat or not, I used Blumstein which use a binary of either habitat or not for terrestrial species and onyl had a reduction for agriculture. Therefore all non-habitat was assigned the maximimum degradation score on the landscape. With this technique need to invert the results so that 0 represents most degraded. It is possible to run for different types of species as Polaskey as numbers already and then average. 
+
+#-------------------------------------------------------------#
+#Threat Shapefiles 
+Agriculture + Urban: Created raster for presence/absence from NLCD
+
+
+Roads 
+Using U.S. Census data you can download all roads for an individual county and then I subset the data into primary and secondary roads. This isn't that many roads should we include city roads etc.? Data:https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2016&layergroup=Roads 
+
+See Roads.R for creation of data inputs. 
+
+Used data for 2016
+
+Trails Data
+Same as used in Recreation Model. Idaho.gov and urban trails from ridge to rivers. 
+
+Data: /Volumes/Research/JodiBrandt/Common/SarahHalperin/Data/HabitatQuality_Data/Threats
+Github: Habitat Quality/Threats
+
+Threat data for roads and trials assumed constant
+#-------------------------------------------------------------#
+#Threat Access Layer
+GAP DATA for accessibility of threats: https://www.sciencebase.gov/catalog/item/60259839d34eb12031138e1e
+
+Data:TV.GAP.shp
+#-------------------------------------------------------------#
+#NLCD Data (buffer)
+
+Data: /Volumes/Research/JodiBrandt/Common/SarahHalperin/Data/HabitatQuality_Data/NLCD
+Github: Land use/land use for habitat model 
+
+see NLCDterra.R for creation of data inputs or NLCD_github
+#-------------------------------------------------------------#
+#General Notes
+NOTE: Half saturation constant: based on first run of the model. Should be half of the highest degradation value. 
+
+NOTE: since only one development class I averaged across low, medium, high in the threats and sensitivity layer. All threats/acess remain constant except LULC (i.e. roads, trails, and access)
+
+
+
+
+
+#------------------------------------------------------------------#
+#Compile data for Habitat Model 
+
+```{r}
+#Load in Packages
+library(rgdal)
+library(sp)
+library(raster)
+library(sf)
+library(rgeos)
+library(terra)
+```
+
+```{r}
+#Study area
+StudyArea.sf<-st_read("/Volumes/JodiBrandt/Common/SarahHalperin/Data/StudyArea/StudyArea_wgs84.shp")
+StudyArea.sf%>%
+  st_transform(4087) 
+
+StudyArea.Vec<-terra::vect(StudyArea.sf)
+
+StudyArea.vec.buffer<-buffer(StudyArea.Vec, width=10000)
+
+writeVector(StudyArea.vec.buffer, "/Volumes/JodiBrandt/Common/SarahHalperin/Data/StudyArea/StudyArea_buffer.shp")
+
+#Roads
+Idaho.roads.sf<-st_read("/Volumes/Research/JodiBrandt/Common/SarahHalperin/Data/Roads/Idaho_2016_roads/tl_2016_16_prisecroads.shp")
+
+Idaho.roads.sf%>%
+  st_transform(4807)
+
+Idaho.roads.vec<-terra::vect(Idaho.roads.sf)
+
+#crop to study area 
+TV.roads<-terra::crop(Idaho.roads.vec, StudyArea.vec.buffer)
+
+
+#Subset by type of road 
+TV.primaryRoads<-TV.roads%>%
+  subset(TV.roads$MTFCC == "S1100")
+TV.secondaryRoads<-TV.roads%>%
+  subset(TV.roads$MTFCC == "S1200")
+
+#----------------------------------
+#Turn into raster with 0 and 1 values 
+#-----------------------------------
+StudyArea<-st_as_sf(StudyArea.vec.buffer)
+
+e<-extent(StudyArea)#create blank raster to then use to turn recreation polygon to raster y
+r<-raster(nrow=4029, ncol=3343) #taken from raster of a buffer area 
+r<-setExtent(r,e)
+
+
+TV.primaryRoads$rvalue<-1
+TV.primaryRoads.sf<-st_as_sf(TV.primaryRoads)
+
+#for some reason cannot get to work with terra 
+
+#primary roads 
+TV.pri.raster<-raster::rasterize(TV.primaryRoads.sf, r, field="rvalue") #creates a raster with the extent of the Treasure Valley using NLCD data cropped to TV
+
+
+TV.secondaryRoads$rvalue<-1
+TV.secondaryRoads.sf<-st_as_sf(TV.secondaryRoads)
+#secondary roads 
+TV.sec.raster<-raster::rasterize(TV.secondaryRoads.sf, r, field="rvalue") #creates a raster with the extent of the Treasure Valley using NLCD data cropped to TV
+
+
+#Write Files
+writeRaster(TV.sec.raster, file="/Volumes/JodiBrandt/Common/SarahHalperin/Data/HabitatQuality_Data/Threats_20012016/sec_roads_c.tif", datatype='INT4S', overwrite=TRUE)
+
+writeRaster(TV.pri.raster, file="/Volumes/JodiBrandt/Common/SarahHalperin/Data/HabitatQuality_Data/Threats_20012016/pri_roads_c.tif", datatype='INT4S', overwrite=TRUE)
+
+#-------------------------------------
+#Trails 
+#--------------------------------------
+#See recreation notes for data sources for trails 
+Trail_folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/"
+#no ATV seasonal trails, motorcyclce, motorcycle seasonal, within Treasure Valley 
+
+Trail_folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/" 
+#no ATV seasonal trails, motorcyclce, motorcycle seasonal, within Treasure Valley 
+
+Trail_folder_List<-list.files(Trail_folder, pattern=".shp$", full.names = TRUE) #list files within trails folder
+
+Trails<-lapply(Trail_folder_List,function(i){
+  readOGR(i) #bring in all files in input folder
+})
+
+TV.trails<-Trails[c(1,3,4,5,6,9)]
+
+#add in urban trails 
+urban.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/Urban_and_Foothill_Ridge_to_River_Trails/Trails.shp")
+
+
+TV.trails[[1]]$rvalue<-1
+TV.trails[[2]]$rvalue<-1
+TV.trails[[3]]$rvalue<-1
+TV.trails[[4]]$rvalue<-1
+TV.trails[[5]]$rvalue<-1
+TV.trails[[6]]$rvalue<-1
+
+
+ID.Trails.r<-lapply(TV.trails, function(i){
+  raster::rasterize(i, r, field="rvalue")
+})
+
+ID.Trails<-merge(ID.Trails.r[[1]], ID.Trails.r[[2]], ID.Trails.r[[3]], ID.Trails.r[[4]], ID.Trails.r[[5]], ID.Trails.r[[6]])
+
+
+urban.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/Urban_and_Foothill_Ridge_to_River_Trails/Trails.shp")
+urban.sp$rvalue<-1
+urban.r<-raster::rasterize(urban.sp, r, field="rvalue")
+
+ID.Trails.total<-merge(ID.Trails, urban.r)
+
+#Write file
+writeRaster(ID.Trails.total,"/Volumes/JodiBrandt/Common/SarahHalperin/Data/HabitatQuality_Data/Threats/Threats_2001/trails_c.tif", datatype='INT4S', overwrite=TRUE)
+
+#-----------------------------------------------_#
+#Threat Access Layer
+#-----------------------------------------------#
+
+Gap<-st_read("/Volumes/JodiBrandt/Common/SarahHalperin/Data/HabitatQuality_Data/GAP/PADUS2_1Designation_StateID.shp")
+
+ #assign access based on status code 
+Gap$ID<-seq.int(nrow(Gap))
+Gap.select<-Gap[, c(30,43)]
+Gap.select$GAP_Sts[Gap.select$GAP_Sts == 1]<-0
+Gap.select$GAP_Sts[Gap.select$GAP_Sts == 2]<-.333333
+Gap.select$GAP_Sts[Gap.select$GAP_Sts == 3]<-.666666
+Gap.select$GAP_Sts[Gap.select$GAP_Sts == 4]<-1
+Gap.select<-st_make_valid(Gap.select) #make sure valid polygon
+Gap.select$ACCESS<-Gap.select$GAP_Sts
+
+Gap.select.vec<-vect(Gap.select) #turn to spacvector
+
+TV.Gap.vec<-terra::crop(Gap.select.vec, StudyArea.vec.buffer) #crop 
+
+#write file
+writeVector(TV.Gap.vec, "/Volumes/JodiBrandt/Common/SarahHalperin/Data/HabitatQuality_Data/GAP/TV.GAP.shp")
+
+
+```
+

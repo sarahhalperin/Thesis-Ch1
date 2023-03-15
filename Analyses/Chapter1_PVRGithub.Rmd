@@ -1,0 +1,103 @@
+---
+title: "Chapter1_PVRAnalysis"
+output: html_document
+author: "Sarah Halperin"
+date: "5/16/22"
+---
+```{r}
+library(raster) # read and edit rasters
+library(Hmisc)  # useful functions for data analysis
+library(rgdal)  # Add this package to read .tif files
+library(igraph) # Run function clump().
+library(dplyr) 
+library(wesanderson)
+library(ggplot2)
+library(reshape)
+library(sf)
+library(terra)
+library(reshape)
+library(tidyverse)
+library(MetBrewer)
+library(corrplot)
+```
+#Overview 
+Determines proportion of ES in each land class and agricultural land quality class 
+
+#Load in ES Dataframe 
+```{r}
+Folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/"
+
+ES_dataframe.2016<-read.csv(paste0(Folder, "Data/ES_CSV/ESDataFrame2016_Full.csv")) 
+ES_dataframe.2016$X<-NULL 
+
+```
+
+
+#Percent of total ES Supply 
+```{r}
+df.2016<-ES_dataframe.2016[, c(1,2,3,4,5,6,9,10)]
+df.2016$PVR.Group<-ifelse(is.na(df.2016$PVR.Group),"None", df.2016$PVR.Group) #assign None to NA values 
+df.2016<-na.omit(df.2016)
+
+df.2016.melt <- melt(df.2016, by="LandUseW") #melt based on land use and by default does PVR groups as well 
+
+#Aggregate
+df.2016.aggregate<-aggregate(value ~ variable + PVR.Group, df.2016.melt, FUN = sum) #aggregate by ES and PVR.Group
+df.2016.aggregate.lc<-aggregate(value ~ variable + LandUseW, df.2016.melt, FUN = sum) #aggregate by Land use
+
+
+#Determine Total 
+df.2016.sum<-as.data.frame(apply(df.2016[,1:6],2, sum)) 
+colnames(df.2016.sum)<-"Total.ES"
+df.2016.sum$variable<-rownames(df.2016.sum)
+
+#Join aggregate and total 
+df.2016.prop<-full_join(df.2016.aggregate, df.2016.sum, by="variable") 
+df.2016.prop.lc<-full_join(df.2016.aggregate.lc, df.2016.sum, by="variable")
+
+#Determine proportion of total 
+df.2016.prop<-df.2016.prop %>%
+  mutate( prop = (value/Total.ES) *100) 
+
+df.2016.prop.lc<-df.2016.prop.lc %>%
+  mutate( prop = (value/Total.ES) *100) 
+
+#Proportion land use table (appendix)
+write.csv(df.2016.prop.lc, paste0(Folder, "/Figures/Chapter1_ES/02_ProportionLandUse.csv"))
+
+
+
+```
+
+Percent of Total ES Supply Figure 
+```{r}
+
+#https://observablehq.com/@fil/metbrewer-color-schemes
+
+#Manipulate order
+df.2016.prop<- df.2016.prop %>% 
+  mutate( PVR.Group = ordered(PVR.Group, levels=c("high", "med", "low" ))) %>%
+   mutate(variable = ordered(variable, levels=c("FoodProvision", "LivestockCropProduction", "Carbon", "NitrogenRetention", "Habitat", "Recreation")))
+
+#filter to high, medium, low 
+df.2016.prop <-df.2016.prop %>%
+ filter(PVR.Group == "high" | PVR.Group == "med" | PVR.Group == "low")
+
+PVR_color<-c("#165d43","#788f33","#aeac4c")
+
+
+#Plot proportion in each agricultural quality class (Figure 2)
+ggplot(df.2016.prop)+
+ geom_bar(aes(fill=PVR.Group, y=prop, x=variable), stat="identity",position="dodge")+
+  scale_y_continuous(name =expression('Percent of Total ES Supply (%)'), breaks = seq(0,100, by = 20), limits=c(0,100))+ 
+  scale_fill_manual(values=PVR_color, labels = c("High", "Medium", "Low"), name ="Agricultural Land Quality")+
+  scale_x_discrete(labels = c("Food Provision", "Livestock Crop Production", "Carbon", "Nitrogen Retention", "Habitat Quality", "Recreation"))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.text.y=element_text(size=20, colour="black"), axis.text.x=element_text(size=10, colour="black",angle=45, hjust=1),
+       axis.title.x=element_blank(), axis.title.y =element_text(size=15, face="bold"), legend.text=element_text(size=10))+
+  theme(plot.margin=unit(c(1,1,1,1), "in"))
+
+```
+

@@ -1,0 +1,49 @@
+---
+title: "CarbonModel"
+format: html
+editor: visual
+---
+
+## Overview
+
+Carbon Storage and Sequestrion model from InVest 3.6.0 was used. Helpful documents include Q:\\SarahHalperin\\Data\\Carbon_Data and information from the inVEST manual http://releases.naturalcapitalproject.org/invest-userguide/latest/carbonstorage.html. The model uses maps of land use along with stocks in four carbon pools (aboveground biomass, belowground biomass, soil and dead organic matter) to estimate the amount of carbon stored in each land use. The main limitations of the model are that it is an oversimplified version of the carbon cycle and there is an assumed linear relationship in carbon sequestration over time. Main sources of uncertainty is in where got the carbon data from.
+
+# Data
+
+### C Pools 
+
+Here shows the estimates and the sources: Cpools_Data.xlsx
+
+
+Data was gathered from the IPCC, CDIAC, and Qiu & Turner 2013. Qiu & Turner combine above and belowground biomass so had to convert to separate them. 
+ex. they estimate developed areas; open space as 23.2 (18.86+4.34) using ratio below: above at .23. I also used these values for woody wetlands and water wetlands which may be problematic because conducted in a different climate.
+
+### Carbon stored in aboveground biomass
+
+Based on Table 4.1 on page 4.46 of the IPCC 2006 report (see link in inVEST manual) and RESOLVE ecoregions dataset. I believe the Treasure Valley is Temperate Steppe (TeBSK). Table on pg 4.49 describes the conversion by using carbon fraction of aboveground forest biomass. Default conversion is 0.47. Broad-leaved 0.48 and conifers 0.51.
+
+Tables 5.1 through 5.3 and 4.7, 4.8, 4.12 give aboveground biomass estimates.
+
+### Carbon stored in below ground biomass
+
+From the IPCC table 4.4 in temperature systems they assume the ratio of above-belowground biomass to be 0.23 for broadleaf, which I have used for all classes except shrubland, grassland, and wetlands. For shrubland and grassland I used the IPCC 6.1 table for semi-arid grassland and shurbland which are both 2.8. For wetlands the qiu & turner paper reports an assumed ratio of 50% aboveground biomass.
+
+### Carbon stored in soil
+
+I mostly gathered data from Qui & turner but they had specific trees so then I looked to IPCC. I am not super confident in these numbers.
+
+### Carbon stored in dead material
+
+Mainly sourced from Qiu & Turner 2013 with added values for forests.
+
+## InVEST Data 
+
+Cpools: 02_weightedAverageCpools.csv
+
+2016 LandUse: TV.NLCD_2016w.tif 
+
+2030 LandUse: TV.NLCD_2030.tif
+
+2050 LandUse: TV.NLCD_2050.tif
+
+

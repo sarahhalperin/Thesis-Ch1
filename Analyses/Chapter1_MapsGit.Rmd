@@ -1,0 +1,563 @@
+---
+title: "ES Maps"
+author: "Sarah Halperin"
+date: "11/17/2021"
+output: pdf_document
+---
+
+#Load in packages 
+```{r} 
+library(tidyverse)
+library(ggplot2) 
+library(ggmap)
+library(patchwork) #easy composition of multi-figure plots 
+library(cartogram) #thematic changes of the geometry based on other attributes 
+library(sf)
+library(terra)
+library(tmap)
+library(RColorBrewer)
+library(tmaptools)
+library(rgdal)
+library(MetBrewer)
+library(ggrepel)
+```
+
+#Load in data (could make this more efficient)
+```{r}
+Folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/"
+
+#--------------------------------------------#
+#2016
+Food_r.2016<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Food2016.tif"))
+Carbon_r.2016<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Carbon2016.tif"))
+Recreation_r.2016<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Recreation2016.tif"))
+Pasture_r.2016<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Pasture2016.tif"))
+Retention.n_r.2016<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Retention2016_chaplin.tif"))
+Habitat_r.2016<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Habitat2016.tif"))
+#--------------------------------------------#
+
+#--------------------------------------------#
+#2030
+Food_r.2030<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Food2030.tif"))
+Carbon_r.2030<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Carbon2030.tif"))
+Recreation_r.2030<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Recreation2030.tif"))
+Pasture_r.2030<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Pasture2030.tif"))
+Retention.n_r.2030<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Retention2030_chaplin.tif"))
+Habitat_r.2030<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Habitat2030.tif"))
+#--------------------------------------------#
+
+#--------------------------------------------#
+#2050
+Food_r.2050<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Food2050.tif"))
+Carbon_r.2050<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Carbon2050.tif"))
+Recreation_r.2050<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Recreation2050.tif"))
+Pasture_r.2050<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Pasture2050.tif"))
+Retention.n_r.2050<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Retention2050_chaplin.tif"))
+Habitat_r.2050<-terra::rast(paste0(Folder, "Data/ES_Spatial_Layers/Habitat2050.tif"))
+#--------------------------------------------#
+
+#--------------------------------------------#
+#Study Area
+StudyArea<-st_read(paste0(Folder, "Data/StudyArea/StudyArea_wgs84.shp"))
+StudyArea<-as(StudyArea, "SpatVector")
+StudyArea.p<-terra::project(StudyArea, crs(Food_r.2016))
+StudyArea.sf<-st_as_sf(StudyArea.p)
+
+Idaho.cities<-st_read(paste0(Folder, "Data/LandUse/IdahoCities/ID.CitiesAll.shp"))
+Idaho.cities<-as(Idaho.cities, "SpatVector")
+Idaho.cities.p<-terra::project(Idaho.cities, crs(Food_r.2016))
+Idaho.cities.sf<-st_as_sf(Idaho.cities.p)
+
+Idaho.cities.sf <- Idaho.cities.sf %>%
+  filter(CITY_NAME == "Boise" | CITY_NAME == "Nampa" | CITY_NAME == "Caldwell" | CITY_NAME == "Kuna")
+#--------------------------------------------#
+#PVR 
+PVR_2016<-terra::rast(paste0(Folder, "Data/AFT_Data/PVR_TV.tif"))
+PVR_2016<-terra::project(PVR_2016, crs(Food_r.2016))
+
+PVR_2050<-terra::rast(paste0(Folder, "Data/AFT_Data/PVR2050.tif"))
+PVR_2050<-terra::project(PVR_2050, crs(Food_r.2016))
+```
+
+#-------------------------------------#
+#ggplot maps 
+
+#-----------------------------------#
+
+```{r}
+#FOOD PROVISION 
+#scale values
+Food_2016.scale<-scale(Food_r.2016)
+Food_2030.scale<-scale(Food_r.2030)
+Food_2050.scale<-scale(Food_r.2050)
+
+#Convert to df
+df.food_r.2016<-as.data.frame(Food_2016.scale, xy=TRUE)
+df.food_r.2030<-as.data.frame(Food_2030.scale, xy=TRUE)
+df.food_r.2050<-as.data.frame(Food_2050.scale, xy=TRUE)
+
+
+#rescale for color 
+
+df.food_r.2016<-df.food_r.2016 %>%
+  mutate(
+    scaled = scales::rescale(rank(YieldCrop_2016), range(YieldCrop_2016))
+  )
+
+df.food_r.2030<-df.food_r.2030 %>%
+  mutate(
+    scaled = scales::rescale(rank(YieldCrop_2030), range(YieldCrop_2030))
+  )
+
+df.food_r.2050<-df.food_r.2050 %>%
+  mutate(
+    scaled = scales::rescale(rank(YieldCrop_2050), range(YieldCrop_2050))
+  )
+
+
+
+Food.2016<-ggplot(data=df.food_r.2016)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Morgenstern", n=15))+
+  labs(fill='Bushel/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Food Provision 2016")+
+    theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Food.2016_ggplot.png"), width=7, height =5, units="in", res=500)
+Food.2016
+dev.off()
+
+Food.2030<-ggplot(data=df.food_r.2030)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Morgenstern", n=15))+
+  labs(fill='Bushel/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Food Provision 2030")+
+    theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Food.2030_ggplot.png"), width=7, height =5, units="in", res=500)
+Food.2030
+dev.off()
+
+  
+Food.2050<-ggplot(data=df.food_r.2050)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Morgenstern", n=15))+
+  labs(fill='Bushel/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Food Provision 2050")+
+    theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Food.2050_ggplot.png"), width=7, height =5, units="in", res=500)
+Food.2050
+dev.off()
+
+```
+
+
+```{r}
+#LIVESTOCK CROP PPRODUCTION
+
+#scale
+Pasture_2016.scale<-scale(Pasture_r.2016)
+Pasture_2030.scale<-scale(Pasture_r.2030)
+Pasture_2050.scale<-scale(Pasture_r.2050)
+
+
+#Convert to df
+df.pasture_r.2016<-as.data.frame(Pasture_2016.scale, xy=TRUE)
+df.pasture_r.2030<-as.data.frame(Pasture_2030.scale, xy=TRUE)
+df.pasture_r.2050<-as.data.frame(Pasture_2050.scale, xy=TRUE)
+
+#rescale for color 
+
+df.pasture_r.2016<-df.pasture_r.2016 %>%
+  mutate(
+    scaled = scales::rescale(rank(YieldPasture_2016), range(YieldPasture_2016))
+  )
+
+df.pasture_r.2030<-df.pasture_r.2030 %>%
+  mutate(
+    scaled = scales::rescale(rank(YieldPasture_2030), range(YieldPasture_2030))
+  )
+
+df.pasture_r.2050<-df.pasture_r.2050 %>%
+  mutate(
+    scaled = scales::rescale(rank(YieldPasture_2050), range(YieldPasture_2050))
+  )
+
+#maps
+Livestock.2016<-ggplot(data=df.pasture_r.2016)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Peru2", n=15))+
+  labs(fill='AUM/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Livestock Crop Production 2016")+ 
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Livestock.2016_ggplot.png"), width=7, height =5, units="in", res=500)
+Livestock.2016
+dev.off()
+
+Livestock.2030<-ggplot(data=df.pasture_r.2030)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Peru2", n=15))+
+  labs(fill='AUM/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Livestock Crop Production 2030")+ 
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Livestock.2030_ggplot.png"), width=7, height =5, units="in", res=500)
+Livestock.2030
+dev.off()
+
+
+Livestock.2050<-ggplot(data=df.pasture_r.2050)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Peru2", n=15))+
+  labs(fill='AUM/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Livestock Crop Production 2050")+ 
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Livestock.2050_ggplot.png"), width=7, height =5, units="in", res=500)
+Livestock.2050
+dev.off()
+
+```
+
+```{r}
+#CARBON 
+
+#scale
+Carbon_2016.scale<-scale(Carbon_r.2016)
+Carbon_2030.scale<-scale(Carbon_r.2030)
+Carbon_2050.scale<-scale(Carbon_r.2050)
+
+
+
+#df
+df.carbon_r.2016<-as.data.frame(Carbon_2016.scale, xy=TRUE)
+df.carbon_r.2030<-as.data.frame(Carbon_2030.scale, xy=TRUE)
+df.carbon_r.2050<-as.data.frame(Carbon_2050.scale, xy=TRUE)
+
+#rescale so breaks in colors make sense and show differentiation 
+df.carbon_r.2016<-df.carbon_r.2016 %>%
+  mutate(
+    scaled = scales::rescale(rank(tot_c_fut_weight), range(tot_c_fut_weight))
+  )
+
+df.carbon_r.2030<-df.carbon_r.2030 %>%
+  mutate(
+    scaled = scales::rescale(rank(tot_c_cur_weight), range(tot_c_cur_weight))
+  )
+
+df.carbon_r.2050<-df.carbon_r.2050 %>%
+  mutate(
+    scaled = scales::rescale(rank(tot_c_fut_weight), range(tot_c_fut_weight))
+  )
+
+#map
+Carbon.2016<-ggplot(data=df.carbon_r.2016)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Veronese", n=15))+
+  labs(fill='Mg of C/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Carbon Sequestration 2016")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Carbon.2016_ggplot.png"), width=7, height =5, units="in", res=500)
+Carbon.2016
+dev.off()
+
+
+Carbon.2030<-ggplot(data=df.carbon_r.2030)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Veronese", n=15))+
+  labs(fill='Mg of C/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Carbon Sequestration 2030")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Carbon.2030_ggplot.png"), width=7, height =5, units="in", res=500)
+Carbon.2030
+dev.off()
+
+Carbon.2050<-ggplot(data=df.carbon_r.2050)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Veronese", n=15))+
+  labs(fill='Mg of C/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Carbon Sequestration 2050")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Carbon.2050_ggplot.png"), width=7, height =5, units="in", res=500)
+Carbon.2050
+dev.off()
+
+```
+
+```{r}
+#HABITAT 
+Habitat_2016.scale<-scale(Habitat_r.2016)
+Habitat_2030.scale<-scale(Habitat_r.2030)
+Habitat_2050.scale<-scale(Habitat_r.2050)
+
+#df
+df.habitat_r.2016<-as.data.frame(Habitat_2016.scale, xy=TRUE)
+df.habitat_r.2030<-as.data.frame(Habitat_2030.scale, xy=TRUE)
+df.habitat_r.2050<-as.data.frame(Habitat_2050.scale, xy=TRUE)
+
+#rescale so breaks in colors make sense and show differentiation 
+df.habitat_r.2016<-df.habitat_r.2016 %>%
+  mutate(
+    scaled = scales::rescale(rank(quality_f_02), range(quality_f_02))
+  )
+
+df.habitat_r.2030<-df.habitat_r.2030 %>%
+  mutate(
+    scaled = scales::rescale(rank(quality_c_02), range(quality_c_02))
+  )
+
+
+
+df.habitat_r.2050<-df.habitat_r.2050 %>%
+  mutate(
+    scaled = scales::rescale(rank(quality_f_02), range(quality_f_02))
+  )
+
+#maps
+Habitat.2016<-ggplot(data=df.habitat_r.2016)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Pillement", n=15))+
+  labs(fill='HQ/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Habitat Quality (HQ) 2016")+
+    theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Habitat.2016_ggplot.png"), width=7, height =5, units="in", res=500)
+Habitat.2016
+dev.off()
+
+Habitat.2030<-ggplot(data=df.habitat_r.2030)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Pillement", n=15))+
+  labs(fill='HQ/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Habitat Quality (HQ) 2030")+
+    theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Habitat.2030_ggplot.png"), width=7, height =5, units="in", res=500)
+Habitat.2030
+dev.off()
+
+Habitat.2050<-ggplot(data=df.habitat_r.2050)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Pillement", n=15))+
+  labs(fill='HQ/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Habitat Quality (HQ) 2050")+
+    theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Habitat.2050_ggplot.png"), width=7, height =5, units="in", res=500)
+Habitat.2050
+dev.off()
+
+```
+
+```{r}
+#RECREATION 
+Recreation_2016.scale<-scale(Recreation_r.2016)
+Recreation_2030.scale<-scale(Recreation_r.2030)
+Recreation_2050.scale<-scale(Recreation_r.2050)
+
+#df
+df.recreation_r.2016<-as.data.frame(Recreation_2016.scale, xy=TRUE)
+df.recreation_r.2030<-as.data.frame(Recreation_2030.scale, xy=TRUE)
+df.recreation_r.2050<-as.data.frame(Recreation_2050.scale, xy=TRUE)
+
+#rescale so breaks in colors make sense and show differentiation 
+
+df.recreation_r.2016<-df.recreation_r.2016 %>%
+  mutate(
+    scaled = scales::rescale(rank(`02_recreation_2016sum`), range(`02_recreation_2016sum`))
+  )
+
+
+df.recreation_r.2030<-df.recreation_r.2030 %>%
+  mutate(
+    scaled = scales::rescale(rank(`02_recreation_2030sum`), range(`02_recreation_2030sum`))
+  )
+
+
+
+df.recreation_r.2050<-df.recreation_r.2050 %>%
+  mutate(
+    scaled = scales::rescale(rank(`02_recreation_2050sum`), range(`02_recreation_2050sum`))
+  )
+
+#maps
+
+Recreation.2016<-ggplot(data=df.recreation_r.2016)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Troy", n=15))+
+  labs(fill='Probability/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Recreation Probability 2016")+
+     theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.15, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Recreation.2016_ggplot.png"), width=7, height =5, units="in", res=500)
+Recreation.2016
+dev.off()
+
+Recreation.2030<-ggplot(data=df.recreation_r.2030)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Troy", n=15))+
+  labs(fill='Probability/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Recreation Probability 2030")+
+     theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.15, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Recreation.2030_ggplot.png"), width=7, height =5, units="in", res=500)
+Recreation.2030
+dev.off()
+
+Recreation.2050<-ggplot(data=df.recreation_r.2050)+
+  geom_sf(data=StudyArea.sf, fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Troy", n=15))+
+  labs(fill='Probability/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Recreation Probability 2050")+
+     theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.15, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Recreation.2050_ggplot.png"), width=7, height =5, units="in", res=500)
+Recreation.2050
+dev.off()
+
+```
+
+
+```{r}
+#NITROGEN RETENTION
+Retention.n_r_2016.scale<-scale(Retention.n_r.2016)
+Retention.n_r_2030.scale<-scale(Retention.n_r.2030)
+Retention.n_r_2050.scale<-scale(Retention.n_r.2050)
+
+#df
+df.retention.n_r.2016<-as.data.frame(Retention.n_r_2016.scale, xy=TRUE)
+df.retention.n_r.2030<-as.data.frame(Retention.n_r_2030.scale, xy=TRUE)
+df.retention.n_r.2050<-as.data.frame(Retention.n_r_2050.scale, xy=TRUE)
+
+#rescale so breaks in colors make sense and show differentiation 
+
+
+df.retention.n_r.2016<-df.retention.n_r.2016 %>%
+  mutate(
+    scaled = scales::rescale(rank(Retention2016_chaplin30m), range(Retention2016_chaplin30m))
+  )
+
+df.retention.n_r.2030<-df.retention.n_r.2030 %>%
+  mutate(
+    scaled = scales::rescale(rank(Retention2030_chaplin), range(Retention2030_chaplin))
+  )
+
+df.retention.n_r.2050<-df.retention.n_r.2050 %>%
+  mutate(
+    scaled = scales::rescale(rank(Retention2050_chaplin), range(Retention2050_chaplin))
+  )
+
+#maps
+
+Retention.2016<-ggplot(data=df.retention.n_r.2016)+
+  geom_sf(data=st_transform(StudyArea.sf, crs(Retention.n_r.2016)), fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Pissaro", n=15))+
+  labs(fill='Kg/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Nitrogen Retention 2016")+
+   theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Retention.2016_ggplot.png"), width=7, height =5, units="in", res=500)
+Retention.2016
+dev.off()
+
+Retention.2030<-ggplot(data=df.retention.n_r.2030)+
+  geom_sf(data=st_transform(StudyArea.sf, crs(Retention.n_r.2030)), fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Pissaro", n=15))+
+  labs(fill='Kg/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Nitrogen Retention 2030")+
+   theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Retention.2030_ggplot.png"), width=7, height =5, units="in", res=500)
+Retention.2030
+dev.off()
+
+Retention.2050<-ggplot(data=df.retention.n_r.2050)+
+  geom_sf(data=st_transform(StudyArea.sf, crs(Retention.n_r.2030)), fill="lightgray", color="black")+
+  geom_tile(aes(x=x, y=y, fill=scaled))+
+  scale_fill_gradientn(colors=met.brewer("Pissaro", n=15))+
+  labs(fill='Kg/30m Pixel')+ 
+  theme_void()+
+  ggtitle("Nitrogen Retention 2050")+
+   theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.position = c(1.1, 0.75))
+
+png(file=paste0(Folder, "/Figures/Chapter1_ES/ggplot_maps/Retention.2050_ggplot.png"), width=7, height =5, units="in", res=500)
+Retention.2050
+dev.off()
+
+```
+

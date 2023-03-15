@@ -1,0 +1,190 @@
+---
+title: "Water Quality Documentation"
+author: "Sarah Halperin"
+date: "11/10/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+## Overview
+
+The Water Quality: Nutrient Delivery Ratio from InVEST 3.6.0 was used. For details on the model please refer to the InVEST manual (http://data.naturalcapitalproject.org/nightly-build/invest-users-guide/html/ndr.html). The model uses a simple mass balance approach and describes the mvoement of nutrients through space. The source of nutrient loads are based off the LULC and their associated loading rates. The model can accodomate surface and subsurface flow, but only surface was used here. 
+
+## Data + Methods
+Note: All data was reprojected to Transverse Mercator NAD_1983_Transverse_Mercator. I ended up using this because this is what the ISU DEM data was projected in. Need to consider what projection to use. To run in InVEST needs to be in Planar Units. 
+
+DEM: Several DEM rasters exist. I have compiled a few of them. 
+
+1. ISU_NED.tif (400m resolution). The raster is already reprojected to be in planar coordinates, which is a requirement. Source: https://giscenter.rdc.isu.edu/arcgis/rest/services/NED/Topography_elevation/ImageServer   
+Projection: NAD_1983_Transverse_Mercator
+2. NED_10m.tif (10m resolution). Downloaded from data.idaho.gov and reprojected in Arc. The original file is Ground surface elevation for idaho (1_3 arc). tif. The DEM needed to be filled. Final version: NED_10mFill.tif. Filled using the fill tool in Arc.  https://hub.arcgis.com/datasets/fe0c102615fd4163b78aa76b5e094e7f/explore. Same file repeated in R GS_NAD83fill.tif (use this version) ******FINAL 
+Original projection: GCS_NOrth_American_1983 no linear unit
+Source: https://insideidaho.org/arcgis/rest/services/elevation/idaho_13as_bedem/ImageServer (USGS)
+Projection: NAD_1983_Transverse_Mercator
+3. NED_IUDEM.tif (30m). Downloaded from UI 
+Source: https://data.nkn.uidaho.edu/dataset/national-elevation-dataset-ned-idaho
+
+FINAL: NED_10mFILL.tif
+
+
+LULC: NLCD 
+NLCD_2011NAD831.tif
+Reprojected to NAD_83. 
+
+Nutrient runoff proxy: WorldClim Precip data 
+Took monthly climate data for 1970-2000 and averaged all months. Want to elimate the variation among months and years. We are not taking into account climate change. 
+Original Projection: WGS84
+Filename: WorldClim19702000_tv_avg.tif
+Source: http://worldclim.org
+Resolution: 30s
+
+
+Question: SHOULD WE USE THE YEARLY AVERAGE? 
+1-27-21: Using June PRISM doesn't seem to change anything drastically. Slight variation. Still getting variation in the foothills that doesn't make complete sense. 
+2-15-21: Using WorldClim data with higher resolution seems to generate much better answers. 
+
+Watersheds: 
+Filename: wbdhu12_tvproj
+Source: https://datagateway.nrcs.usda.gov/GDGOrder.aspx; USGS WBD dataset for Ada and Canyon County. I merged them in ArcGIS. 
+Original projection: GCS_WGS_1984
+Projected: NAD_1983_Traverse_Mercator
+
+
+Biophysical Table: 
+Table taken from Huang et al.2019
+File name: BiophysicalTableHuang.csv
+
+
+Threshold flow accumulation: 
+2-14-21: Ran the analysis with threshold value of 1000, 2000, and 1500. None are perfect but threshold value of 2000 reflect the stream layer the best from USGS. 
+
+Borselli K parameter set at default of 2 
+
+
+##Conversion to nitrogen retention 
+Following Chaplin-Kramer et al. 2019 (see supplementary materials) they are defining the potential benefit provided by nature as nitrogen retention or the difference between nitrogen load (the amount of fertilizer added into the system to be mitigated) and nitrogen export (the amount that makes it to the stream. how much eventually reaches the stream). The different is the amount nature mitigated. They discuss that you can't do this at a pixel level and summed to a 1 degree scale.  Need to talk through with Jodi. 
+
+## Emails with Natural Capital 
+_SH_
+
+Hi all,
+
+I am new to the Nutrient Delivery Ratio Model and I am having trouble identifying which output would represent the amount of nutrients retained in each pixel. In other words the amount filtered. Would this be effective_retention_x?
+
+Thank you for the help!
+
+
+
+_Doug_ 
+
+I believe you are correct. The intermediate output effective_retention_{p|n} (depending on phosphorous or nitrogen) is the effective retention per pixel. It pertains to the eff_i equation in the Users Guide. However, these models were developed at the watershed and sub-watershed scale, so looking at pixel values should only be used to better understand the model and system and not for exact measurements.
+
+When looking at scenarios with different LULC inputs it is easier to compare relative retentions at the watershed level by looking at the differences in export.
+
+Hopefully this helps!
+
+Doug
+#-----------------------------------------------------#
+
+##Input Data Manipulation 
+
+```{r}
+library(dplyr)
+library(rgdal)
+library(sp)
+library(raster)
+library(sf)
+library(rgeos)
+library(terra)
+```
+#Precipiation 
+```{r}
+#---------------------------------------#
+#WorldClim 1970-2000 average data: Clip and Avergae 
+#-----------------------------------------#
+Input_Folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/Data/WaterQuality/WorldClim/WorldClim19702000/"
+
+Input_Folder_List<-list.files(Input_Folder, pattern=".tif$", full.names = TRUE)
+
+StudyArea<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/StudyArea/StudyArea_nad83.shp")
+StudyArea.buffer<-buffer(StudyArea, width=5000)
+
+WC<-lapply(Input_Folder_List,function(i){
+  raster(i) #bring in all files in input folder 
+})
+
+StudyArea.b.reproj<-spTransform(StudyArea.buffer, crs(WC[[1]]))
+identicalCRS(StudyArea.b.reproj, WC[[1]])
+
+WC.TV<-lapply(WC, function(i){
+  crop(i, extent(StudyArea.b.reproj)) 
+})
+
+WC.tv<-lapply(WC.TV, function(i){
+  raster::mask(i, StudyArea.b.reproj)
+})
+  
+
+WCstack<-stack(WC.tv) #stack to then take average of the 12 months of precip data
+WC.avg<-calc(WCstack, fun = mean) #take average
+
+WC.avg.83<-projectRaster(WC.avg, crs=crs(StudyArea), method="ngb") #reproject to Nad83 
+
+Output_Folder<-Input_Folder
+
+writeRaster(WC.avg.83,file=paste0(Output_Folder, "WorldClim19702000_tv_avg"), format="GTiff", overwrite=TRUE) 
+```
+#Nitrogen Retention
+
+```{r}
+#Chaplin Paper Nitrogen Retention = Nitrogen Load- Nitrogen export 
+Folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/"
+
+#2001
+load_n.c<-raster(paste0(Folder, "InVEST/WaterQuality/NLCD2001w/intermediate_outputs/load_n_30m.tif"))
+export_n.c<-raster(paste0(Folder, "InVEST/WaterQuality/NLCD2001w/n_export_30m.tif"))
+
+Retention.c<-load_n.c-export_n.c
+
+
+
+writeRaster(Retention.c,file=paste0(Folder, "InVEST/WaterQuality/NLCD2001w/Retention2001_chaplin30m.tif"), overwrite=TRUE)
+
+
+
+
+#2016
+load_n.c<-raster(paste0(Folder, "InVEST/WaterQuality/NLCD2016w/intermediate_outputs/load_n_30m.tif"))
+export_n.c<-raster(paste0(Folder, "InVEST/WaterQuality/NLCD2016w/n_export_30m.tif"))
+
+Retention.c<-load_n.c-export_n.c
+
+
+writeRaster(Retention.c,file=paste0(Folder, "InVEST/WaterQuality/NLCD2016w/Retention2016_chaplin30m"), format="GTiff", overwrite=TRUE)
+
+
+#2030 
+load_n.c<-raster(paste0(Folder, "InVEST/WaterQuality/NLCD2030/intermediate_outputs/load_n_30m.tif"))
+
+
+Retention.c<-load_n.c-export_n.c
+
+
+writeRaster(Retention.c,file=paste0(Folder, "InVEST/WaterQuality/NLCD2030/Retention2030_chaplin30m"), format="GTiff", overwrite=TRUE)
+
+
+#2050 
+load_n.c<-raster(paste0(Folder, "InVEST/WaterQuality/NLCD2050/intermediate_outputs/load_n_30m.tif"))
+export_n.c<-raster(paste0(Folder, "InVEST/WaterQuality/NLCD2050/n_export_30m.tif"))
+
+Retention.c<-load_n.c-export_n.c
+
+
+writeRaster(Retention.c,file=paste0(Folder, "InVEST/WaterQuality/NLCD2050/Retention2050_chaplin30m"), format="GTiff", overwrite=TRUE)
+
+```
+
+
+

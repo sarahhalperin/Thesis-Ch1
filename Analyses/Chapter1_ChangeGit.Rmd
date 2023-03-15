@@ -1,0 +1,233 @@
+---
+title: "Chapter 1 Set up"
+author: "Sarah Halperin"
+date: "3/30/21"
+output: html_document
+---
+
+```{r echo=FALSE, message=FALSE}
+library(raster) # read and edit rasters
+library(Hmisc)  # useful functions for data analysis
+library(rgdal)  # Add this package to read .tif files
+library(igraph) # Run function clump().
+library(dplyr) 
+library(wesanderson)
+library(ggplot2)
+library(reshape)
+library(sf)
+library(terra)
+library(reshape)
+library(tidyverse)
+library(RColorBrewer)
+library(MetBrewer)
+
+```
+
+
+```{r echo=FALSE, message=FALSE}
+Folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/"
+
+#2016
+ES_dataframe.2016<-read.csv(paste0(Folder, "Data/ES_CSV/ESDataFrame2016_Full.csv")) 
+ES_dataframe.2016$X<-NULL 
+
+
+#2030
+ES_dataframe.2030<-read.csv(paste0(Folder, "Data/ES_CSV/ESDataFrame2030_Full.csv"))
+ES_dataframe.2030$X<-NULL #I think might be because how exporting. 
+
+
+#2050
+ES_dataframe.2050<-read.csv(paste0(Folder, "Data/ES_CSV/ESDataFrame2050_Full.csv"))
+ES_dataframe.2050$X<-NULL #I think might be because how exporting. 
+
+```
+
+
+#Change Over Time (Percent of Maximum)
+```{r}
+#2016
+df.2016<-ES_dataframe.2016[,1:6]
+df.2016<-na.omit(df.2016)
+df.2016.t<-as.data.frame(apply(df.2016, 2, sum))
+colnames(df.2016.t)<-"sum"
+
+#2030
+df.2030<-ES_dataframe.2030[,1:6]
+df.2030<-na.omit(df.2030)
+df.2030.t<-as.data.frame(apply(df.2030, 2, sum))
+colnames(df.2030.t)<-"sum"
+
+#2050
+df.2050<-ES_dataframe.2050[,1:6]
+df.2050<-na.omit(df.2050)
+df.2050.t<-as.data.frame(apply(df.2050, 2, sum))
+colnames(df.2050.t)<-"sum"
+
+#Determine percent of maximum 
+df.sum<-as.data.frame(t(cbind(df.2016.t, df.2030.t, df.2050.t)))
+df.sum.max<-as.data.frame(apply(df.sum,2,max))
+colnames(df.sum.max)<-"max"
+df.sum.max$variable<-c("FoodProvision", "Recreation", "Carbon", "NitrogenRetention", "Habitat", "LivestockCropProduction")
+df.sum$year<-c("2016", "2030", "2050")
+
+
+df.sum.melt<-melt(df.sum, id="year")
+df.sum.melt$year<-as.numeric(df.sum.melt$year) 
+
+df.sum.melt<-full_join(df.sum.melt, df.sum.max, by="variable")
+df.sum.melt.p <- df.sum.melt  %>%
+    mutate( Percent = value/max *100)
+
+
+#add PVR 
+df.2016.PVR<-ES_dataframe.2016[,8:9]
+df.2016.PVR<-na.omit(df.2016.PVR)
+
+
+#count number of rows in each group of PVR
+df.count.2016 <- df.2016.PVR %>%
+  count(PVR.Group, wt=PVR) %>%
+  mutate( year = "2016", 
+          Acres = (n*0.225)/1000)
+
+#2030 
+df.2030.PVR<-ES_dataframe.2030[,8:9]
+df.2030.PVR<-na.omit(df.2030.PVR)
+
+
+
+#count number of rows in each group of PVR
+df.count.2030 <- df.2030.PVR %>%
+  count(PVR.Group, wt=PVR) %>%
+  mutate( year = "2030", 
+          Acres = (n*0.225)/1000)
+
+#2050
+df.2050.PVR<-ES_dataframe.2050[,8:9]
+df.2050.PVR<-na.omit(df.2050.PVR)
+
+
+#count number of rows in each group of PVR
+df.count.2050 <- df.2050.PVR %>%
+  count(PVR.Group, wt=PVR) %>%
+  mutate( year = "2050", 
+          Acres = (n*0.225)/1000)
+
+df.PVR<-rbind(df.count.2016, df.count.2030, df.count.2050)
+df.PVR$PVR.Group<-as.character(df.PVR$PVR.Group)
+df.PVR$year<-as.numeric(df.PVR$year)
+
+
+df.complete.pvr<-full_join(df.sum.melt.p, df.PVR, by="year")
+
+
+#PVR
+df.complete.pvr$scale<-df.complete.pvr$Acres/2
+
+df.complete.pvr$yearf<-as.factor(df.complete.pvr$year) #make year factor for figure 
+
+
+df.complete.pvr<-df.complete.pvr %>%
+  mutate (PVR.Group = fct_relevel(PVR.Group, "high", "med", "low")) %>% 
+ mutate(variable = fct_relevel(variable, "FoodProvision", "LivestockCropProduction", "Carbon", "NitrogenRetention", "Habitat", "Recreation"))
+
+#Figure 3
+
+ggplot(df.complete.pvr)+
+   geom_bar(aes(x=yearf, y=scale, fill =PVR.Group), stat="identity", position="dodge")+
+  scale_fill_manual(values=c("#165d43","#788f33","#aeac4c"), labels=c("High", "Medium", "Low"), na.translate=F, name = "Agricultural Land Quality" )+
+ geom_line(aes(x=yearf, y=Percent, color=variable, group=variable), size=1)+
+  geom_point(aes(x=yearf, y=Percent, color=variable), size=4)+
+  scale_color_manual(values=met.brewer("Austria",6), labels = c("Food Provision", "Livestock Crop Production", "Carbon Sequestration", "Nitrogen Retention", "Habitat Quality", "Recreation"), name = "Ecosystem Service")+
+  scale_x_discrete(name="Year")+
+  scale_y_continuous(name ='Percent of Maximum (%)', sec.axis= sec_axis( ~ . *2, name ='Area (Thousand of Acres)'))+ 
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.text=element_text(size=15, colour="black"),
+       axis.title.x=element_text(size=25), axis.title.y =element_text(size=15, face="bold"), legend.text=element_text(size=10))+
+  theme(plot.margin=unit(c(1,1,1,1), "in"))
+
+```
+#--------------------------------------------------#
+#Compare Years for entire study area
+```{r}
+#--------------------------------------------------#
+
+#Create complete dataframe
+df.sum<-cbind(df.2016.t, df.2030.t, df.2050.t)
+df.sum<-as.data.frame(t(df.sum))
+df.sum$year<-c("2016", "2030", "2050")
+
+df.sum.melt<-melt(df.sum, id="year")
+class(df.sum.melt$year)<-"numeric"
+
+
+#calcualte percent change
+df.sum.melt.p<-df.sum.melt %>%
+  subset(year =="2016" | year == "2050") %>%
+  group_by (variable) %>%
+  arrange(year) %>%
+  mutate(pct.chg =(value-lag(value))/lag(value)*100)
+
+df.sum.melt.p
+
+```
+#------------------------------------------------#
+#Compare Years for each land class 
+
+```{r}
+df.ag<-cbind(ES_dataframe.2016, ES_dataframe.2050)
+
+df.2016.ag<-ES_dataframe.2016[,c(1,2,3,4,5,6,9)]
+df.2016.ag<-na.omit(df.2016.ag) 
+
+df.2016.m<-melt(df.2016.ag, id="PVR.Group")
+
+df.ag.sum.2016 <-df.2016.m %>%
+    group_by(PVR.Group, variable) %>%
+  summarise(
+            value=sum(value, na.rm=TRUE))
+
+df.ag.sum.2016$year<-"2016"
+
+df.2050.ag<-df.ag[,c(11,12,13,14,15,16,9)]
+#df.2050.ag<-ES_dataframe.2050[,c(1,2,3,4,5,6,9)]
+df.2050.ag<-na.omit(df.2050.ag) 
+
+
+df.2050.m<-melt(df.2050.ag, id="PVR.Group")
+
+df.ag.sum.2050 <-df.2050.m %>%
+    group_by(PVR.Group, variable) %>%
+  summarise(
+            value=sum(value, na.rm=TRUE))
+
+df.ag.sum.2050$year<-"2050"
+
+df.sum.ag<-rbind(df.ag.sum.2016, df.ag.sum.2050)
+
+
+
+#calcualte percent change
+df.sum.ag.p<-df.sum.ag %>%
+  group_by (variable, PVR.Group) %>%
+  arrange(year) %>%
+  mutate(chg =(value-lag(value)))
+
+df.sum.ag.2050<-df.sum.ag.p %>%
+  filter(year=="2050")
+
+df.2016.p<-df.2016.t
+df.2016.p$variable<-rownames(df.2016.p)
+
+df.join<-full_join(df.sum.ag.2050, df.2016.p, by="variable")
+
+df.join.complete<-df.join %>%
+  group_by(PVR.Group) %>%
+  mutate(pct = (chg/sum)*100)
+
+
+```
+

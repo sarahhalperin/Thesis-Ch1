@@ -1,0 +1,297 @@
+---
+title: "Chapter 1 Set up"
+author: "Sarah Halperin"
+date: "6/29/21"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+##Overview 
+
+This RMD file creates a dataframe from the ES layers for use in the analyses. The script repeats for years 2016, 2030, and 2050. 
+
+```{r echo=FALSE, message=FALSE}
+library(raster) # read and edit rasters
+library(Hmisc)  # useful functions for data analysis
+library(rgdal)  # Add this package to read .tif files
+library(dplyr) 
+library(reshape)
+library(sf)
+library(terra)
+```
+
+
+#Generate Data Frame For 2016
+
+##Bring in baseline data 
+```{r}
+Folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/" 
+StudyArea.vec<-terra::vect("/Volumes/JodiBrandt/Common/SarahHalperin/Data/StudyArea/StudyArea_wgs84.shp")
+
+```
+
+## Bring in 2016 data 
+```{r} 
+NLCD_2016<-terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/Data/LandUse/TV_NLCD/NLCD_Weighted/TV.NLCD_2016w.tif")
+
+List_2016 <-list(
+  Food=terra::rast(paste0(Folder,"Data/Cropscape_Data/SpatialYieldLayers/Food_2016.tif")),
+  Pasture=terra::rast(paste0(Folder, "Data/Cropscape_Data/SpatialYieldLayers/Pasture_2016.tif")),
+  Carbon=terra::rast(paste0(Folder,"InVEST/Carbon/09-30-21Output/20012016/tot_c_fut_weight.tif")), #Year 2016 
+  Recreation=terra::rast(paste0(Folder, "Data/Recreation/RecreationProvision/02_recreation_2016sum.tif")),
+  Retention=terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/InVEST/WaterQuality/NLCD2016w/Retention2016_chaplin30m.tif"),
+  Habitat=terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/InVEST/HabitatQuality/20012016/quality_f_02.tif"), 
+  PVR=terra::rast(paste0(Folder, "Data/AFT_Data/PVR_TV.tif"))
+)
+
+#Reproject 
+List_2016.p<-lapply(List_2016, FUN = function(x) {
+  terra::project(x, NLCD_2016)
+})
+
+StudyArea.vec<-terra::project(StudyArea.vec, NLCD_2016)
+
+#Crop 
+List_2016.p<-lapply(List_2016.p, FUN = function(x) {
+  terra::crop(x, StudyArea.vec)
+  return(terra::mask(x, StudyArea.vec))
+})
+```
+
+
+##Create Dataframe
+```{r}
+Stack<-c(List_2016.p$Food, List_2016.p$Pasture, List_2016.p$Carbon, List_2016.p$Recreation, List_2016.p$Retention, List_2016.p$Habitat, List_2016.p$PVR, NLCD_2016)
+
+Brick<-brick(Stack) #sometimes need to run a couple of times to get it to work 
+
+ES_dataframe<-as.data.frame(Brick)
+
+
+names(ES_dataframe)<-c("FoodProvision","LivestockCropProduction","Carbon","Recreation", "NitrogenRetention", "Habitat",  "PVR", "LandUse")
+
+#remove NA if carbon is NA, assumed carbon is entire study region as it is an inVEST output  
+ES_dataframe<-ES_dataframe %>% mutate_all(~ifelse(is.nan(.), NA, .))
+ES_dataframe<-ES_dataframe[!is.na(ES_dataframe$Carbon),]
+
+
+
+#replace NA values for Food, Livestock
+ES_dataframe$FoodProvision<-ifelse(is.na(ES_dataframe$FoodProvision), 0, ES_dataframe$FoodProvision)
+ES_dataframe$LivestockCropProduction<-ifelse(is.na(ES_dataframe$LivestockCropProduction), 0, ES_dataframe$LivestockCropProduction)
+```
+
+#Join ES values with Land use categories and PVR values. Group PVR values into low, med, high 
+```{r}
+#TO INCLUDE LAND USE
+LandUseW<-c("Open Water","Cultivated Crops", "Development","Barren land", "Pasture/Hay", "Shrub", "Grassland", "Mergent Herbaceous", "Woody Wetland", "Evergreen Forest", "Deciduous Forest", "Mixed Forest")
+LandUse<-c(11,82,25,31, 81,52, 71, 95, 90, 42,41,43)
+LandUseCategories<-as.data.frame(cbind(LandUseW, LandUse))
+LandUseCategories$LandUse<-as.numeric(LandUseCategories$LandUse)
+
+
+
+
+#Determine 1/3 quantiles 
+PVR.test<-as.data.frame(List_2016.p$PVR) #run in 2016 data 
+quantile(PVR.test$PVR, probs=seq(0,1,1/3), na.rm=TRUE) #0.22, 0.49
+median(PVR.test$PVR, na.rm=TRUE) #0.36
+
+labels=c('low','med','high')
+
+ES_dataframe<-ES_dataframe %>%
+  mutate(PVR.Group = 
+           cut(PVR, breaks = c(0,0.22,0.49,1), right = F, labels=labels))
+
+
+ES_dataframe.F<-full_join(ES_dataframe, LandUseCategories, by="LandUse")
+
+
+
+write.csv(ES_dataframe.F,paste0(Folder, "Data/ES_CSV/02_ESDataFrame2016_Full.csv"), row.names=FALSE)
+```
+
+#----------------------------------------------------------------------------------------------------#
+##Bring in 2030 Data
+```{r}
+#2030
+NLCD_2030<-terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/Data/LandUse/TV_NLCD/NLCD_Weighted/TV.NLCD_2030.tif")
+
+List_2030 <- list(
+  Food=terra::rast(paste0(Folder,"Data/Cropscape_Data/SpatialYieldLayers/Food_2030.tif")), 
+  Pasture=terra::rast(paste0(Folder, "Data/Cropscape_Data/SpatialYieldLayers/Pasture_2030.tif")),
+  Carbon = terra::rast(paste0(Folder,"InVEST/Carbon/09-30-21Output/20302050/tot_c_cur_weight.tif")), 
+  Recreation = terra::rast(paste0(Folder, "Data/Recreation/RecreationProvision/02_recreation_2030sum.tif")),
+  Retention= terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/InVEST/WaterQuality/NLCD2030/Retention2030_chaplin30m.tif"),
+  Habitat= terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/InVEST/HabitatQuality/20302050/quality_c_02.tif"),
+  PVR= terra::rast(paste0(Folder, "Data/AFT_Data/PVR2030.tif"))
+) 
+
+
+#Reproject 
+List_2030.p<-lapply(List_2030, FUN = function(x) {
+  terra::project(x, NLCD_2030)
+})
+
+StudyArea.vec<-terra::project(StudyArea.vec, NLCD_2030)
+
+#Crop 
+List_2030.p<-lapply(List_2030.p, FUN = function(x) {
+  terra::crop(x, StudyArea.vec)
+  return(terra::mask(x, StudyArea.vec))
+})
+```
+
+
+##Create Dataframe 2030
+```{r}
+Stack<-c(List_2030.p$Food, List_2030.p$Pasture, List_2030.p$Carbon, List_2030.p$Recreation, List_2030.p$Retention, List_2030.p$Habitat, List_2030.p$PVR, NLCD_2030)
+
+Brick<-brick(Stack) #sometimes need to run a couple of times to get it to work 
+
+ES_dataframe<-as.data.frame(Brick)
+
+
+names(ES_dataframe)<-c("FoodProvision","LivestockCropProduction","Carbon","Recreation", "NitrogenRetention", "Habitat",  "PVR", "LandUse")
+
+#remove NA if carbon is NA, assumed carbon is entire study region as it is an inVEST output  
+ES_dataframe<-ES_dataframe %>% mutate_all(~ifelse(is.nan(.), NA, .))
+ES_dataframe<-ES_dataframe[!is.na(ES_dataframe$Carbon),]
+
+
+
+#replace NA values for Food, Livestock
+ES_dataframe$FoodProvision<-ifelse(is.na(ES_dataframe$FoodProvision), 0, ES_dataframe$FoodProvision)
+ES_dataframe$LivestockCropProduction<-ifelse(is.na(ES_dataframe$LivestockCropProduction), 0, ES_dataframe$LivestockCropProduction)
+```
+
+#Join ES values with Land use categories and PVR values. Group PVR values into low, med, high 
+```{r}
+#TO INCLUDE LAND USE
+LandUseW<-c("Open Water","Cultivated Crops", "Development","Barren land", "Pasture/Hay", "Shrub", "Grassland", "Mergent Herbaceous", "Woody Wetland", "Evergreen Forest", "Deciduous Forest", "Mixed Forest")
+LandUse<-c(11,82,25,31, 81,52, 71, 95, 90, 42,41,43)
+LandUseCategories<-as.data.frame(cbind(LandUseW, LandUse))
+LandUseCategories$LandUse<-as.numeric(LandUseCategories$LandUse)
+
+labels=c('low','med','high')
+
+ES_dataframe<-ES_dataframe %>%
+  mutate(PVR.Group = 
+           cut(PVR, breaks = c(0,0.22,0.49,1), right = F, labels=labels))
+
+
+ES_dataframe.F<-full_join(ES_dataframe, LandUseCategories, by="LandUse")
+
+
+
+write.csv(ES_dataframe.F,paste0(Folder, "Data/ES_CSV/02_ESDataFrame2030_Full.csv"), row.names=FALSE)
+```
+
+
+##Bring in 2050 Data
+```{r}
+#2050
+NLCD_2050<-terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/Data/LandUse/TV_NLCD/NLCD_Weighted/TV.NLCD_2050.tif")
+
+List_2050 <- list( 
+  Food=terra::rast(paste0(Folder,"Data/Cropscape_Data/SpatialYieldLayers/Food_2050.tif")),
+Pasture=terra::rast(paste0(Folder, "Data/Cropscape_Data/SpatialYieldLayers/Pasture_2050.tif")),
+Carbon=terra::rast(paste0(Folder,"InVEST/Carbon/09-30-21Output/20302050/tot_c_fut_weight.tif")), 
+Recreation=terra::rast(paste0(Folder, "Data/Recreation/RecreationProvision/02_recreation_2050sum.tif")),
+Retention=terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/InVEST/WaterQuality/NLCD2050/Retention2050_chaplin30m.tif"),
+Habitat=terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/InVEST/HabitatQuality/20302050/quality_f_02.tif"),
+PVR=terra::rast(paste0(Folder, "Data/AFT_Data/PVR2050.tif"))
+)
+
+#Reproject 
+List_2050.p<-lapply(List_2050, FUN = function(x) {
+  terra::project(x, NLCD_2050)
+})
+
+StudyArea.vec<-terra::project(StudyArea.vec, NLCD_2050)
+
+#Crop 
+List_2050.p<-lapply(List_2050.p, FUN = function(x) {
+  terra::crop(x, StudyArea.vec)
+  return(terra::mask(x, StudyArea.vec))
+})
+
+```
+
+
+##Create Dataframe 2050
+```{r}
+Stack<-c(List_2050.p$Food, List_2050.p$Pasture, List_2050.p$Carbon, List_2050.p$Recreation, List_2050.p$Retention, List_2050.p$Habitat, List_2050.p$PVR, NLCD_2050)
+
+Brick<-brick(Stack) #sometimes need to run a couple of times to get it to work 
+
+ES_dataframe<-as.data.frame(Brick)
+
+
+names(ES_dataframe)<-c("FoodProvision","LivestockCropProduction","Carbon","Recreation", "NitrogenRetention", "Habitat",  "PVR", "LandUse")
+
+#remove NA if carbon is NA, assumed carbon is entire study region as it is an inVEST output  
+ES_dataframe<-ES_dataframe %>% mutate_all(~ifelse(is.nan(.), NA, .))
+ES_dataframe<-ES_dataframe[!is.na(ES_dataframe$Carbon),]
+
+
+
+#replace NA values for Food, Livestock
+ES_dataframe$FoodProvision<-ifelse(is.na(ES_dataframe$FoodProvision), 0, ES_dataframe$FoodProvision)
+ES_dataframe$LivestockCropProduction<-ifelse(is.na(ES_dataframe$LivestockCropProduction), 0, ES_dataframe$LivestockCropProduction)
+```
+
+#Join ES values with Land use categories and PVR values. Group PVR values into low, med, high 
+```{r}
+#TO INCLUDE LAND USE
+LandUseW<-c("Open Water","Cultivated Crops", "Development","Barren land", "Pasture/Hay", "Shrub", "Grassland", "Mergent Herbaceous", "Woody Wetland", "Evergreen Forest", "Deciduous Forest", "Mixed Forest")
+LandUse<-c(11,82,25,31, 81,52, 71, 95, 90, 42,41,43)
+LandUseCategories<-as.data.frame(cbind(LandUseW, LandUse))
+LandUseCategories$LandUse<-as.numeric(LandUseCategories$LandUse)
+
+labels=c('low','med','high')
+
+ES_dataframe<-ES_dataframe %>%
+  mutate(PVR.Group = 
+           cut(PVR, breaks = c(0,0.22,0.49,1), right = F, labels=labels))
+
+
+ES_dataframe.F<-full_join(ES_dataframe, LandUseCategories, by="LandUse")
+
+
+
+write.csv(ES_dataframe.F,paste0(Folder, "Data/ES_CSV/02_ESDataFrame2050_Full.csv"), row.names=FALSE)
+```
+
+##Export raster layers to look at them in Arc or Qgis 
+```{r}
+#2016
+ES_folder<-paste0(Folder,"Data/ES_Spatial_Layers/")
+
+ES_names.2016<-c("Food_2016", "Pasture_2016", "Carbon_2016", "Recreation_2016", "Retention_2016", "Habitat_2016")
+
+mapply(function(x,n){
+  writeRaster(x, file=paste0(ES_folder,n,".tif"), overwrite=TRUE)
+}, List_2016.p, ES_names.2016)
+
+#2030 
+ES_names.2030<-c("Food_2030", "Pasture_2030", "Carbon_2030", "Recreation_2030", "Retention_2030", "Habitat_2030")
+
+mapply(function(x,n){
+  writeRaster(x, file=paste0(ES_folder,n,".tif"), overwrite=TRUE)
+}, List_2030.p, ES_names.2030)
+
+#2050
+ES_names.2050<-c("Food_2050", "Pasture_2050", "Carbon_2050", "Recreation_2050", "Retention_2050", "Habitat_2050")
+
+mapply(function(x,n){
+  writeRaster(x, file=paste0(ES_folder,n,".tif"), overwrite=TRUE)
+}, List_2050.p, ES_names.2050)
+```
+
+#------------------------------------------------------------------------------------#
+## NOTE: Assign 0 values to NA values for Food, Pasture. As these aren't values we don't have but areas that do not have this ES. 
+
+

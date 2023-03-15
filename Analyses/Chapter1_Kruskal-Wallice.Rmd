@@ -1,0 +1,378 @@
+---
+title: "Kruskal-Wallice"
+output: html_document
+author: "Sarah Halperin"
+date: "5/09/2022"
+---
+
+Kruskal-wallice test is a non-parametric alternative to a one-way Anova test, which extends the two-sample wilcoxon test. We used this test over anova as the ES values are not normally distributed. 
+
+Source: http://www.sthda.com/english/wiki/kruskal-wallis-test-in-r
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(pgirmess)
+library(rstatix)
+library(FSA)
+library(tibble)
+library(caret)
+```
+
+#Arrange Data
+```{r}
+Folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/"
+
+ES_dataframe.2016<-read.csv(paste0(Folder, "Data/ES_Spatial_Layers/ESDataFrame2016_Full.csv"), header=T)
+ES_dataframe.2016<-na.omit(ES_dataframe.2016)
+
+PVR<-as.data.frame(ES_dataframe.2016[,9])
+colnames(PVR)<-"PVR.Group"
+
+#min-max is sensitive to outliers so assigning outliers to 0.05 and 95 percentile 
+outliers<-function(x){
+   quantiles <- quantile( x, c(0.05, .95) )
+   x[ x < quantiles[1] ] <- quantiles[1]
+   x[ x > quantiles[2] ] <- quantiles[2]
+   x
+}
+
+ES_dataframe.2016.outliers<-ES_dataframe.2016 %>%
+  mutate_at(vars(1:6), outliers)
+
+#ES_dataframe.2016.outliers<-as.data.frame(lapply(ES_dataframe.2016[,c(1,2,3,4,5,6)], outliers))
+
+norm_minmax<-function(x){
+  (x-min(x))/(max(x)-min(x))
+}
+
+#norm_ES_dataframe.2016<-as.data.frame(lapply(ES_dataframe.2016.outliers, norm_minmax))
+
+norm_ES_dataframe.2016<-ES_dataframe.2016.outliers %>%
+  mutate_at(vars(1:6), norm_minmax)
+
+#norm_ES_dataframe.2016<-cbind(norm_ES_dataframe.2016, PVR)
+
+norm_ES_dataframe.2016<-norm_ES_dataframe.2016[,c(1,2,3,4,5,6,9)]
+
+ES_dataframe.2016.melt<-melt(norm_ES_dataframe.2016, id="PVR.Group") #stack the dataframe 
+ES_dataframe.2016.melt$PVR.Group<-as.factor(ES_dataframe.2016.melt$PVR.Group) #convert PVR.Group to factor  
+
+ES_dataframe.2016.melt$PVR.Group<-ordered(ES_dataframe.2016.melt$PVR.Group, levels=c("high", "med", "low")) 
+ES_dataframe.2016.melt$variable<-ordered(ES_dataframe.2016.melt$variable, levels=c("FoodProvision", "LivestockCropProduction", "Carbon", "NitrogenRetention", "Habitat", "Recreation"))
+
+
+```
+#Figure of means with normalized data 
+```{r}
+set.seed(123)
+ES_dataframe.2016.melt.s<-slice_sample(ES_dataframe.2016.melt, n=500)
+ 
+  df.mean.sd<-ES_dataframe.2016.melt.s %>%
+    group_by(PVR.Group, variable) %>%
+  summarise(
+            mean=mean(value, na.rm=TRUE), 
+            sd = sd(value, na.rm=TRUE), 
+            se = sd(value, na.rm=TRUE)/sqrt(length(value))
+            )
+    
+
+ggplot(df.mean.sd, aes(x=variable, y=mean, ymin=mean-se, ymax=mean+se, fill=PVR.Group))+
+   geom_bar(stat="identity", position="dodge")+
+  geom_errorbar( position=position_dodge(.9), colour="black", width=0.3)+
+  scale_y_continuous(name =expression('Mean (SE)'), breaks = seq(0,1, by = .2), limits=c(0,1))+
+  scale_fill_manual(values=c("#165d43","#788f33","#aeac4c"), labels = c("High", "Medium", "Low"), name ="Agricultural Land Quality", na.translate=F)+
+   scale_x_discrete(labels = c("Food Provision", "Livestock Crop Production", "Carbon Sequestration", "Nitrogen Retention", "Habitat Quality", "Recreation"))+
+   theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), panel.border=element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.text.y=element_text(size=10, colour="black"), axis.text.x=element_text(size=10, colour="black",angle=45, hjust=1),
+       axis.title.x=element_blank(), axis.title.y =element_text(size=12, face="bold"), legend.text=element_text(size=10))+
+  theme(plot.margin=unit(c(1,1,1,1), "in"))
+```
+
+#Nitrogen
+```{r}
+
+#-------------------------------------------------------------#
+
+df.NitrogenRetention<-ES_dataframe.2016.melt %>%
+  filter(variable == "NitrogenRetention")
+
+
+#take sample 
+set.seed(123)
+NitrogenRetention<-slice_sample(df.NitrogenRetention, n=500)
+NitrogenRetention$value<-as.numeric(NitrogenRetention$value)
+
+hist(NitrogenRetention$value)
+
+#Summary Statistics 
+  group_by(NitrogenRetention, PVR.Group) %>%
+  summarise( 
+            count = n(), 
+            mean=mean(value, na.rm=TRUE), 
+            sd = sd(value, na.rm=TRUE), 
+            median = median(value, na.rm =TRUE)
+            )
+  
+#boxplot
+ggplot(NitrogenRetention)+
+ geom_boxplot(aes(x=PVR.Group, y=value))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.text=element_text(size=25, colour="black"),
+       axis.title.x=element_text(size=25), axis.title.y =element_text(size=25, face="bold"), legend.text=element_text(size=10))+
+  theme(plot.margin=unit(c(1,1,1,1), "in"))
+  
+
+#Kruskal-wallice 
+  
+kruskal.test(value ~ PVR.Group, data=NitrogenRetention) 
+
+PostHoc<-kruskalmc(NitrogenRetention$value, NitrogenRetention$PVR.Group) 
+
+Dunn<-dunnTest(value ~ PVR.Group, data=NitrogenRetention, method="bonferroni") #alternative method 
+
+kruskal_effsize(value ~ PVR.Group, data=NitrogenRetention) #	effsize = 0.4856
+#Multiple comparison test after Kruskal-Wallis 
+#p.value: 0.05 
+#Comparisons
+         #  obs.dif critical.dif difference
+#low-med   701122.5     2699.342       TRUE
+#low-high 1268211.4     2723.823       TRUE
+#med-high  567088.9     2721.805       TRUE
+#-------------------------------------------------------------#
+```
+
+#Carbon 
+```{r}
+df.Carbon<-ES_dataframe.2016.melt %>%
+  filter(variable == "Carbon")
+
+df.Carbon$value<-as.numeric(df.Carbon$value)
+
+#take sample 
+set.seed(123)
+Carbon<-slice_sample(df.Carbon, n=500)
+
+hist(Carbon$value)
+
+#Summary Statistics 
+  group_by(Carbon, PVR.Group) %>%
+  summarise( 
+            count = n(), 
+            mean=mean(value, na.rm=TRUE), 
+            sd = sd(value, na.rm=TRUE), 
+            median = median(value, na.rm =TRUE)
+            )
+
+  #boxplot
+ggplot(Carbon)+
+ geom_boxplot(aes(x=PVR.Group, y=value))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.text=element_text(size=25, colour="black"),
+       axis.title.x=element_text(size=25), axis.title.y =element_text(size=25, face="bold"), legend.text=element_text(size=10))+
+  theme(plot.margin=unit(c(1,1,1,1), "in"))
+  
+#Kruskal-wallice 
+  
+kruskal.test(value ~ PVR.Group, data=Carbon) #chi-squared = 1354307, df = 2, p-value < 2.2e-16
+
+PostHoc<-kruskalmc(Carbon$value, Carbon$PVR.Group) 
+
+Dunn<-dunnTest(value ~ PVR.Group, data=NitrogenRetention, method="bonferroni") 
+kruskal_effsize(value ~ PVR.Group, data=Carbon) #526622
+
+#Multiple comparison test after Kruskal-Wallis 
+#p.value: 0.05 
+#Comparisons
+ #          obs.dif critical.dif difference
+#low-med   807784.5     2699.342       TRUE
+#low-high 1112733.8     2723.823       TRUE
+#med-high  304949.3     2721.805       TRUE
+#-------------------------------------------------------------#
+```
+
+#Habitat
+```{r}
+df.Habitat<-ES_dataframe.2016.melt %>%
+  filter(variable == "Habitat")
+
+set.seed(123)
+Habitat<-slice_sample(df.Habitat, n=500)
+
+#Summary Statistics 
+  group_by(Habitat, PVR.Group) %>%
+  summarise( 
+            count = n(), 
+            mean=mean(value, na.rm=TRUE), 
+            sd = sd(value, na.rm=TRUE), 
+            median = median(value, na.rm =TRUE)
+            )
+  
+  #boxplot
+ggplot(Habitat)+
+ geom_boxplot(aes(x=PVR.Group, y=value))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.text=element_text(size=25, colour="black"),
+       axis.title.x=element_text(size=25), axis.title.y =element_text(size=25, face="bold"), legend.text=element_text(size=10))+
+  theme(plot.margin=unit(c(1,1,1,1), "in"))
+  
+  
+#Kruskal-wallice 
+  
+kruskal.test(value ~ PVR.Group, data=Habitat) #chi-squared = 1169856, df = 2, p-value < 2.2e-16
+
+PostHoc<-kruskalmc(Habitat$value, Habitat$PVR.Group) 
+
+kruskal_effsize(value ~ PVR.Group, data=Habitat) #.4549
+
+#Multiple comparison test after Kruskal-Wallis 
+#p.value: 0.05 
+#Comparisons
+          # obs.dif critical.dif difference
+#low-med   987602.3     2699.342       TRUE
+#low-high 1121297.4     2723.823       TRUE
+#med-high  133695.1     2721.805       TRUE
+```
+
+#Recreation 
+```{r}
+
+df.Recreation<-ES_dataframe.2016.melt %>%
+  filter(variable == "Recreation")
+
+set.seed(123)
+Recreation<-slice_sample(df.Recreation, n=500)
+
+#Summary Statistics 
+  group_by(df.Recreation, PVR.Group) %>%
+  summarise( 
+            count = n(), 
+            mean=mean(value, na.rm=TRUE), 
+            sd = sd(value, na.rm=TRUE), 
+            median = median(value, na.rm =TRUE)
+            )
+#boxplot
+ggplot(Recreation)+
+ geom_boxplot(aes(x=PVR.Group, y=value))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.text=element_text(size=25, colour="black"),
+       axis.title.x=element_text(size=25), axis.title.y =element_text(size=25, face="bold"), legend.text=element_text(size=10))+
+  theme(plot.margin=unit(c(1,1,1,1), "in"))
+  
+#Kruskal-wallice 
+  
+kruskal.test(value ~ PVR.Group, data=Recreation) #chi-squared = 1624662, df = 2, p-value < 2.2e-16
+
+PostHoc<-kruskalmc(Recreation$value, Recreation$PVR.Group) 
+
+kruskal_effsize(value ~ PVR.Group, data=Recreation) #0.6317
+
+#Multiple comparison test after Kruskal-Wallis 
+#p.value: 0.05 
+#Comparisons
+        #   obs.dif critical.dif difference
+#low-med   932079.3     2699.342       TRUE
+#low-high 1234769.3     2723.823       TRUE
+#med-high  302690.0     2721.805       TRUE
+```
+
+#Food Provision 
+```{r}
+df.FoodProvision<-ES_dataframe.2016.melt %>%
+  filter(variable == "FoodProvision")
+
+set.seed(123)
+FoodProvision<-slice_sample(df.FoodProvision, n=500)
+#Summary Statistics 
+  group_by(FoodProvision, PVR.Group) %>%
+  summarise( 
+            count = n(), 
+            mean=mean(value, na.rm=TRUE), 
+            sd = sd(value, na.rm=TRUE), 
+            median = median(value, na.rm =TRUE)
+  )
+#boxplot
+ggplot(FoodProvision)+
+ geom_boxplot(aes(x=PVR.Group, y=value))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.text=element_text(size=25, colour="black"),
+       axis.title.x=element_text(size=25), axis.title.y =element_text(size=25, face="bold"), legend.text=element_text(size=10))+
+  theme(plot.margin=unit(c(1,1,1,1), "in"))
+  
+            
+  
+#Kruskal-wallice 
+  
+kruskal.test(value ~ PVR.Group, data=FoodProvision) #chi-squared = 337860, df = 2, p-value < 2.2e-16
+
+PostHoc<-kruskalmc(FoodProvision$value, FoodProvision$PVR.Group) 
+
+kruskal_effsize(value ~ PVR.Group, data=FoodProvision) #0.1313
+#Multiple comparison test after Kruskal-Wallis 
+#p.value: 0.05 
+#Comparisons
+       #    obs.dif critical.dif difference
+#low-med   77732.87     2699.342       TRUE
+#low-high 339499.38     2723.823       TRUE
+#med-high 261766.51     2721.805       TRUE
+```
+#Livestock Crop Production?
+```{r}
+df.LivestockCropProduction<-ES_dataframe.2016.melt %>%
+  filter(variable == "LivestockCropProduction")
+
+#Consistent 7-10 report false between medium and high 
+set.seed(25)
+LivestockCropProduction<-slice_sample(df.LivestockCropProduction, n=500)
+#Summary Statistics 
+  group_by(LivestockCropProduction, PVR.Group) %>%
+  summarise( 
+            count = n(), 
+            mean=mean(value, na.rm=TRUE), 
+            sd = sd(value, na.rm=TRUE), 
+            median = median(value, na.rm =TRUE)
+            )
+#boxplot
+ggplot(LivestockCropProduction)+
+ geom_boxplot(aes(x=PVR.Group, y=value))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.text=element_text(size=25, colour="black"),
+       axis.title.x=element_text(size=25), axis.title.y =element_text(size=25, face="bold"), legend.text=element_text(size=10))+
+  theme(plot.margin=unit(c(1,1,1,1), "in"))
+  
+#Kruskal-wallice 
+  
+kruskal.test(value ~ PVR.Group, data=LivestockCropProduction) #chi-squared = 518901, df = 2, p-value < 2.2e-16
+
+PostHoc<-kruskalmc(LivestockCropProduction$value, LivestockCropProduction$PVR.Group) 
+
+kruskal_effsize(value ~ PVR.Group, data=LivestockCropProduction) #0.201
+
+#Multiple comparison test after Kruskal-Wallis 
+#p.value: 0.05 
+#Comparisons
+         # obs.dif critical.dif difference
+#low-med  657190.9     2699.342       TRUE
+#low-high 501221.4     2723.823       TRUE
+#med-high 155969.5     2721.805       TRUE
+```
+
+
+https://stats.stackexchange.com/questions/108911/why-does-frequentist-hypothesis-testing-become-biased-towards-rejecting-the-null/
+
+https://www.datanovia.com/en/lessons/kruskal-wallis-test-in-r/#:~:text=The%20eta%20squared%2C%20based%20on,total%20number%20of%20observations%20(M.%20T. 

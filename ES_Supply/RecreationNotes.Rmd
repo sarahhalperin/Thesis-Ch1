@@ -1,0 +1,271 @@
+---
+title: "RecreationNotes"
+author: "Sarah Halperin"
+date: "11/10/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+##Overview
+There does not appear to be a set methodology to determine recreation in the ES literature. I created an indicator for recreation based on the presence of nature-based recreational opportunities.  
+
+##Data 
+Parks 
+Source: https://hosted.tplgis.org/hosted/rest/services/ParkServe/ParkServe_Shareable/MapServer/layers ; https://www.tpl.org/parkserve/downloads 
+Name: ParkServe_Parks_05182021
+
+All Trails (all trails from Idaho.gov except highway legal and highway legal seasonal and ones that did not fall into the Treasure Valley) + Urban trails :
+Source:  https://trails.idaho.gov/pages/kmzdownload.html ; https://opendata.cityofboise.org/datasets/25eedd01c4e0404ea0f235d9033d2715_0?geometry=-117.048%2C43.489%2C-115.310%2C43.837
+metadata:https://gis2.idaho.gov/arcgis/rest/services/DPR/Idaho_Trails_Map/MapServer
+Name: AllTrails.shp
+
+Rivers: 
+Source: Jenna_Thesis 
+Name: Boise_River.shp
+Most likely: https://www.usgs.gov/core-science-systems/ngp/national-hydrography/national-hydrography-dataset?qt-science_support_page_related_con=0#qt-science_support_page_related_con
+
+Morley Nelson High Activity Areas: 
+Source: Madeline Aberg 
+Name: 2021_NestSearchArea 
+Methods: We assessed recreational use by expanding on a procedure established by Pauli et al. (2019). We used 10 driving routes spread across the NCA, each 16 km in length, that passed through a variety of land cover types and utilized publicly accessible major and minor roads. From April 2019 to July 2021, we drove the routes each Saturday during the recreational shooting season (March - July) and on one randomly selected Saturday per month throughout the rest of the year. During the routes, we recorded the location, number of people, demographics, and number of vehicles for each observation of human use. We classified the type of use as motorized recreation (off-highway vehicles, driving off-road), target shooting (shooting at targets or other inanimate objects, stationary), hunting (moving through vegetation and shooting, no targets), non-motorized recreation (hiking, birdwatching, biking), and other (camping, photography, etc.). We selected the High/Low recreation paired sites (1 km2) and larger nest searching areas based on areas where the Pauli et al. predictions consistently matched our driving observations. I would consider the area surrounding the paired sites (~ the northern half of the NCA and the area near the river) to be high use, while the southern portion doesn't get much use (there are a couple ohv sites along Grandview highway that would be exceptions) - I think the All RecKernelDensity image shows this accurately! 
+
+
+##Methods 
+
+I created a binary layer of the presence of "natural" recreational opportunities based on trails (urban trails, ATV, Automobile/Automobile seasonal, Jeep/Jeep Season, Non-Motorized), Parks, and a subsection of the Boise River. I used the a subsection of the Boise River that is associated with the Boise Green Belt bike path and is a known area for water-based recreation. Within the parks layer there is a large reserve, the Morely Nelson Snake River Birds of Prey National Conservation Area, that has recreational opportunities but the majority of the preserve has limited access. To reflect this differentiation I used an estimated polygon of high recreational use based on Aberg et al. XXX. To determine recreational use for the previous year, 2001, and land use projections for 2030 and 2050, I determined the probability that a given pixel of a land class was a recreation opportunity (e.g. # pixels development that is recreation/total # of pixel in development). I collapsed the pasture/hay and cultivated crops into the same landclass to determine their probability. I assigned the probability values to all unknown recreation areas and known recreation areas, as described above, was assigned a value of 1. I assumed known recreation areas were constant for all years. Therefore, the final layer ranges from 0-1; with 1 being areas identified as recreational opportunities and 0 being areas with 0% chance of having a recreational opportunities based on its land class. 
+
+##NOTE 
+The script below shows the data manipulation to create known recreational areas. The merged filed 04_recreationsum.tif can be found in the github. Please email sarahhalperin@u.boisestate.edu if you have questions on the input files for the compiled recreation layer. 
+
+```{r}
+library(rgdal)
+library(sp)
+library(raster)
+library(sf)
+library(rgeos)
+library(rgdal)
+library(terra)
+```
+
+#Data Generation for Recreation Model 
+```{r}
+# ----------------------------------------------
+# FILE PATHS:
+
+# ----------------------------------------------
+#Take raw data of trails and parks and manipulate for use in the recreation model 
+
+StudyArea<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/StudyArea/StudyArea_wgs84.shp") #bring in study area
+
+OutputFolder<-"/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/RecreationProvision/"
+
+```
+
+##Trails
+```{r}
+Trail_folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/" 
+#no ATV seasonal trails, motorcyclce, motorcycle seasonal, within Treasure Valley 
+
+Trail_folder_List<-list.files(Trail_folder, pattern=".shp$", full.names = TRUE) #list files within trails folder
+
+Trails<-lapply(Trail_folder_List,function(i){
+  readOGR(i) #bring in all files in input folder
+})
+
+Trails.r<-lapply(Trails, function(i){
+  spTransform(i, crs(StudyArea)) #match projection to the study area
+})
+
+Trails.c<-lapply(Trails.r, function(i){
+  crop(i, StudyArea) #crop trails to the study area
+})
+
+TV.trails<-Trails.c[c(1,3,4,5,6,9)]
+#select trails to all except ATV seasonal trails, motorcyclce, motorcycle seasonal, within Treasure Valley 
+
+#Write files 
+writeOGR(TV.trails[[1]], "/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/ATV.shp", "ATV", driver="ESRI Shapefile", overwrite=TRUE)
+writeOGR(TV.trails[[2]], "/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/AutomobileSeasonal.shp", "AutomobileSeasonal", driver="ESRI Shapefile")
+writeOGR(TV.trails[[3]], "/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/Automobile.shp", "Automobile", driver="ESRI Shapefile")
+writeOGR(TV.trails[[4]], "/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/Jeep.shp", "Jeep", driver="ESRI Shapefile")
+writeOGR(TV.trails[[5]], "/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/JeepSeasonal.shp", "JeepSeasonal", driver="ESRI Shapefile")
+writeOGR(TV.trails[[6]], "/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/Nonmotorized.shp", "Nonmotorized", driver="ESRI Shapefile")
+
+writeOGR(OpenSpace.reproj, Output_Folder, "OpenSpace.reproj", driver="ESRI Shapefile", overwrite_layer = TRUE)
+
+#------------------------------------------------------------------------#
+#merge all trails information
+
+nonmotorized.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/Nonmotorized.shp")
+ATV.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/ATV.shp")
+automobile.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/Automobile.shp")
+automobileseasonal.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/AutomobileSeasonal.shp")
+jeep.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/Jeep.shp")
+jeepseasonal.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/IdahoPR_Trails/TVShapefiles/JeepSeasonal.shp")
+urban.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/Urban_and_Foothill_Ridge_to_River_Trails/Trails.shp")
+
+trails.sp<-bind(nonmotorized.sp, ATV.sp, automobile.sp, automobileseasonal.sp, jeep.sp, jeepseasonal.sp, urban.sp)
+
+writeOGR(trails.sp, OutputFolder, "TV_AllTrails", driver="ESRI Shapefile", overwrite_layer = TRUE) #write all trails 
+```
+
+##River
+```{r}
+#------------------------------------------------------------------------#
+#Subset rivers
+
+Rivers.sp<-readOGR("/Volumes/JodiBrandt/Common/SarahHalperin/Jennas_Thesis and Data/Q Transfer/GIS/Treasure Valley_BR Basin/Source Data/Boise_River.shp")
+
+Rivers_reproj.sp<-spTransform(Rivers.sp, crs(StudyArea))
+identicalCRS(StudyArea, Rivers_reproj.sp)
+
+writeOGR(Rivers_reproj.sp, OutputFolder, "BoiseRiver", driver="ESRI Shapefile", overwrite_layer = TRUE)
+
+
+#read in file using SF
+Rivers.sf=st_read(paste0(OutputFolder, "/BoiseRiver.shp"))
+
+
+Rivers.sf_removed<-Rivers.sf %>%
+  filter(QUAD75 %in% c("BOISE NORTH" , "BOISE SOUTH", "EAGLE", "LUCKY PEAK")) #select only some stretches that correspond to the green belt 
+
+Rivers.sf_removed %>%
+  st_write(paste0(OutputFolder, 'BoiseRiverRemoved.shp')) #write
+
+#-------------------------------------------------------------------------------#
+```
+
+##Parks Data 
+```{r}
+parks.sf<-st_read("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/ParkServe/TV_ParkServe.shp")
+parks.sf<-st_transform(parks.sf, crs(StudyArea)) #project to study area. Others already in right projection. 
+parks.sf<-parks.sf[!parks.sf$ParkID == "59707-0729",] #eliminate Morely Nelson
+
+#add target points in Morley Nelson
+birdsofprey.sf<-st_read("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Recreation/2021_NestSearchAreas.shp")
+birdsofprey.sf<-st_transform(birdsofprey.sf, crs(StudyArea))
+```
+
+
+#Create known recreation areas layer 
+
+```{r}
+#Convert to Raster 
+e<-extent(StudyArea)#create blank raster to then use to turn recreation polygon to raster y
+r<-raster(nrow=3363, ncol=2678)
+r<-setExtent(r,e)
+
+
+
+trails.sf$rvalue<-1 #create new column to then have a raster with value of 1 
+parks.sf$rvalue<-1
+river.sf$rvalue<-1
+birdsofprey.sf$rvalue<-1
+trails.r<-rasterize(trails.sf, r, field="rvalue") #polygon to raster
+parks.r<-rasterize(parks.sf, r, field="rvalue")
+river.r<-rasterize(river.sf, r, field="rvalue")
+birdsofprey.r<-rasterize(birdsofprey.sf, r, field="rvalue")
+
+#add rasters together
+recreation.rw<-stack(parks.r,trails.r,river.r,birdsofprey.r)
+recreation.sum<-raster::calc(recreation.rw, fun=sum, na.rm=TRUE)
+
+
+#crop rasters
+recreation.sum<-raster::crop(recreation.sum, extent(StudyArea)) 
+recreation.sum<-raster::mask(recreation.sum, StudyArea)
+
+
+writeRaster(recreation.sum,file=paste0(OutputFolder, "04_recreationsum.tif"), datatype="INT4S", overwrite=TRUE)
+#areas that are overlap add up 
+#Note: ended up not using sum and changed in probability raster. 
+```
+
+#Develop Probability Raster
+```{r}
+
+#-----------------------------------#
+#Determine probability (# of land class in rec/total land class) 
+
+#Bring in Recreation layer and turn into just values set to 1
+recreation.r<-terra::rast(paste0(OutputFolder,"04_recreationsum.tif"))
+values(recreation.r)[values(recreation.r)>0]<-1
+values(recreation.r)[values(recreation.r)==0]<-NA
+
+#Bring in NLCD layers and combine pature hay and cultivated crops 
+NLCD_2016<-terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/Data/LandUse/TV_NLCD/NLCD_Weighted/TV.NLCD_2016w.tif")
+values(NLCD_2016)[values(NLCD_2016)==81]<-82 #collapse pasture/hay and cultivated crops land classes 
+
+#NLCD_2001<-terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/Data/LandUse/TV_NLCD/NLCD_Weighted/TV.NLCD_2001w.tif")
+#values(NLCD_2001)[values(NLCD_2001)==81]<-82
+
+NLCD_2030<-terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/Data/LandUse/TV_NLCD/NLCD_Weighted/TV.NLCD_2030.tif")
+values(NLCD_2030)[values(NLCD_2030)==81]<-82
+
+NLCD_2050<-terra::rast("/Volumes/JodiBrandt/Common/SarahHalperin/Data/LandUse/TV_NLCD/NLCD_Weighted/TV.NLCD_2050.tif")
+values(NLCD_2050)[values(NLCD_2050)==81]<-82
+
+#Match Rasters 
+new.ras<-terra::rast(xmin=-1674495, xmax=-1594155, ymin=2404755,ymax=2505645, resolution=30, crs=crs(NLCD_2016))
+recreation.r<-terra::resample(recreation.r, new.ras, method="bilinear")
+recreation.r<-trunc(recreation.r)
+
+
+NLCD_2016.crop<-terra::crop(NLCD_2016, recreation.r) #mask NLCD to recreation layer. Somtimes had to convert to polygon first 
+NLCD_2016.crop<-terra::mask(NLCD_2016, recreation.r)
+
+#convert to dataframe to find probability of each land class having recreation
+rec.dataframe.crop<-as.data.frame(freq(NLCD_2016.crop))
+rec.dataframe.tv<-as.data.frame(freq(NLCD_2016))
+names(rec.dataframe.tv)<-c("layer", "value", "sum")
+
+new.row<-data.frame(1,43,0) #missing land class in recreation so need to add row
+new.row2<-data.frame(1,41,0)
+names(new.row)<-c("layer", "value", "count")
+names(new.row2)<-c("layer", "value", "count")
+rec.dataframe.crop<-rbind(rec.dataframe.crop, new.row,new.row2) #bind row 
+
+#combine entire treasure valley dataframe and recreation dataframe 
+rec.dataframe<-dplyr::inner_join(rec.dataframe.crop, rec.dataframe.tv)
+rec.dataframe<-rec.dataframe %>%
+  dplyr::mutate(prob=count/sum) #calculate number of land class that is recreation/total of that land class. 
+
+
+#reclassify based on probability
+rec.reclassify<-rec.dataframe[,c(2,5)]
+
+#reclassify NLCD to match probability of recreation
+rec.2016<-terra::classify(NLCD_2016, rec.reclassify) 
+#rec.2001<-terra::classify(NLCD_2001, rec.reclassify) 
+
+rec.2030<-terra::classify(NLCD_2030, rec.reclassify) 
+
+rec.2050<-terra::classify(NLCD_2050, rec.reclassify) 
+
+
+#------------------------------------------------------#
+```
+
+
+#Create Recreation Layer
+
+```{r}
+#rec.2001.sum<-terra::merge(recreation.r, rec.2001)
+rec.2016.sum<-terra::merge(recreation.r, rec.2016)
+rec.2030.sum<-terra::merge(recreation.r, rec.2030)
+rec.2050.sum<-terra::merge(recreation.r, rec.2050)
+
+#Write Rasters 
+#writeRaster(rec.2001.sum, file=paste0(OutputFolder, "02_recreation_2001sum.tif"), overwrite=TRUE)
+
+writeRaster(rec.2016.sum, file=paste0(OutputFolder, "02_recreation_2016sum.tif"), overwrite=TRUE)
+
+writeRaster(rec.2030.sum, file=paste0(OutputFolder, "02_recreation_2030sum.tif"), overwrite=TRUE)
+
+writeRaster(rec.2050.sum, file=paste0(OutputFolder, "02_recreation_2050sum.tif"), overwrite=TRUE)
+
+```
+
+

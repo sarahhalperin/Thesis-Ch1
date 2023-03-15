@@ -1,0 +1,146 @@
+---
+title: "FoodProvision"
+format: html
+editor: visual
+---
+
+## Food Provision Supply Model
+
+To estimate the ecosystem service of food provision I used NLCD to mask a representative year of the cropland data layer (CDL). I am using a representative sample because there is such variation in types of crops grown year to year. Based on exploration of the data 2016 seems to be about an average year. I then assigned yield data to the CDL layer.
+
+## Load Data
+
+```{r}
+library(terra)
+library(stringr)
+```
+
+Load NLCD
+
+```{r}
+#Load NLCD
+NLCD_folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/Data/LandUse/TV_NLCD/NLCD_Weighted/"
+year2016<-"TV.NLCD_2016w.tif"
+year2030<-"TV.NLCD_2030.tif"
+year2050<-"TV.NLCD_2050.tif"
+
+NLCD_rast<-list(
+  NLCD_2016=terra::rast(paste0(NLCD_folder, year2016)),
+
+NLCD_2030=terra::rast(paste0(NLCD_folder, year2030)),
+
+NLCD_2050=terra::rast(paste0(NLCD_folder, year2050)))
+
+```
+
+Load CDL
+
+```{r}
+CDL_folder<-"/Volumes/JodiBrandt/Common/SarahHalperin/Data/Cropscape_Data/"
+
+Ada<-"Ada_County/CDL_2016_16001.tif"
+Canyon<-"Canyon_County/CDL_2016_16027.tif"
+
+#Assign NA values to 0 
+Ada_CDL<-terra::rast(paste0(CDL_folder,Ada))
+values(Ada_CDL)[values(Ada_CDL) <= 0] = NA 
+
+Canyon_CDL<-terra::rast(paste0(CDL_folder,Canyon)) 
+values(Canyon_CDL)[values(Canyon_CDL) <= 0] = NA 
+
+#Combine Ada and Canyon County 
+CDL<-terra::mosaic(Ada_CDL, Canyon_CDL, fun="max")
+
+#Match CDL and NLCD
+CDL<-terra::project(CDL, crs(NLCD_rast$NLCD_2016))
+CDL<-terra::resample(CDL, NLCD_rast$NLCD_2016, method="bilinear")
+
+writeRaster(CDL,file=paste0(CDL_folder, "CDL_TV_2016.tif"), overwrite=TRUE)
+```
+
+Load Yield CSVs
+
+```{r}
+YieldCrop_csv<-read.csv("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Cropscape_Data/YieldCrop_2016.csv") 
+
+YieldPasture_csv<-read.csv("/Volumes/JodiBrandt/Common/SarahHalperin/Data/Cropscape_Data/YieldPasture_2016.csv")
+```
+
+## Mask CDL to NLCD Ag classes
+
+```{r}
+#create function to retain only Ag classes of NLCD
+crop_mask.f<-function(x){
+  NLCD_crop<-x
+  NLCD_crop[NLCD_crop == 82] <-1
+  NLCD_crop[NLCD_crop == 81] <-1
+  NLCD_crop[NLCD_crop >1]<- NA
+  return(NLCD_crop)
+}
+
+crop_masks<-lapply(NLCD_rast, FUN = function(x) crop_mask.f(x)) #apply function to NLCD raster list 
+
+CDL_masks<-lapply(crop_masks, FUN=function(x){
+  terra::crop(CDL,x)
+  return(terra::mask(CDL,x))
+})
+
+names(CDL_masks)<-paste("CropTypes", names(CDL_masks), sep="_")
+
+CDL_names<-list("CDL_Ag_2016", "CDL_Ag_2030", "CDL_Ag_2050")
+
+#write rasters
+mapply(function(x,n){
+  writeRaster(x, file=paste0(CDL_folder,n,".tif"), datatype="INT4S", overwrite=TRUE)
+}, CDL_masks, CDL_names)
+
+```
+
+Final layers are CDL_Ag_YEAR which are the CDL layers cropped to ag land according to the NLCD. Next step is to align crop type with the estimated yield from the SSURGO soil database.
+
+Convert to consistent unit of tons. Either using google conversions or these two websites. Alwyas chose the higher weight. https://www.agric.gov.ab.ca/app19/calc/crop/bushel2tonne.jsp ; https://extension.uga.edu/publications/detail.html?number=C780&title=Weights%20and%20Processed%20Yields%20of%20Fruits%20and%20Vegetables
+
+## Check how much cropland is covered by Yield Data
+
+```{r}
+crop_known_f<-subset(YieldCrop_csv, !is.na(YieldCrop_csv$BushelPixel))$value
+
+crops_known_p<-subset(YieldPasture_csv, !is.na(YieldPasture_csv$AUMPixel))$Value
+
+crops_known<-c(crops_known_p, crop_known_f) #CDL classes that we have yield data for
+
+perc_covered<-c(0,0,0)
+
+for(i in 1:3){
+  ftab<-freq(CDL_masks[[i]])
+  perc_covered[i]<-round(sum(ftab[ftab[,"value"] %in% crops_known,'count'])/sum(ftab[,"count"])*100,0)
+}
+
+perc_covered 
+```
+
+## Reclassify CDL layer
+
+```{r}
+cropyields<-lapply(CDL_masks, function(x){
+  terra::classify(x, YieldCrop_csv, others=NA)
+})
+
+
+names(cropyields)<-c("Food_2016", "Food_2030", "Food_2050")
+
+pastureyield<-lapply(CDL_masks, function(x){
+  terra::classify(x, YieldPasture_csv, others=NA)
+})
+
+names(pastureyield)<-c("Pasture_2016", "Pasture_2030", "Pasture_2050")
+
+#write rasters
+mapply(function(x,n){
+  writeRaster(x, file=paste0(CDL_folder,n,".tif"), overwrite=TRUE)
+}, cropyields, names(cropyields))
+
+mapply(function(x,n){
+  writeRaster(x, file=paste0(CDL_folder,n,".tif"), overwrite=TRUE)
+}, pastureyield, names(pastureyield))
+```
