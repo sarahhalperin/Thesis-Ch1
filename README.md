@@ -1,4 +1,4 @@
-# Chapter 1: PhD Dissertation 
+# Agriculture, Ecosystems and Environment Paper: Halperin et al., 2023
 Assessing high quality agricultural lands through the ecosystem services lens: Insights from a rapidly urbanizing agricultural region in the western United States
 
 The repository contains Rscripts used to model six different ecosystem services and conduct subsequent analyses. Nitrogen retention, carbon sequestration, and habitat quality were modeled using InVEST models, but scripts for data manipulation can be found here. 
